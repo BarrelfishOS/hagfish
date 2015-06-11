@@ -1,0 +1,21 @@
+## @file Hagfish.dec
+#
+# This package provides the Hagfish UEFI bootloader for Barrelfish
+#
+# Copyright (c) 2015, ETH Zürich. All rights reserved.
+# This program and the accompanying materials are licensed and made available under 
+# the terms and conditions of the BSD License that accompanies this distribution.  
+# The full text of the license may be found at
+# http://opensource.org/licenses/bsd-license.php.
+# 
+# THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,                     
+# WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.  
+#
+##
+
+
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = Hagfish
+  PACKAGE_GUID                   = 7d848683-d6de-4fad-b2e9-fb4473351b18
+  PACKAGE_VERSION                = 0.01
