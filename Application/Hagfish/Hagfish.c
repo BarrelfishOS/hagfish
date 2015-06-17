@@ -40,12 +40,15 @@ dump(UINT64 *base, int len) {
     AsciiPrint("\n");
 }
 
+typedef void (*cpu_driver_entry)(void *acpi_root, void *memory_map);
+
 EFI_STATUS EFIAPI
 UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     EFI_STATUS status;
     EFI_LOADED_IMAGE_PROTOCOL *hag_image;
     EFI_PXE_BASE_CODE_PROTOCOL *pxe;
     EFI_IP_ADDRESS server_ip, *my_ip;
+    EFI_ACPI_2_0_COMMON_HEADER *acpi_header= NULL;
     int i;
 
     AsciiPrint("Hagfish UEFI loader starting\n");
@@ -71,11 +74,9 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         EFI_CONFIGURATION_TABLE *entry= &SystemTable->ConfigurationTable[i];
 
         if(CompareGuid(&entry->VendorGuid, &gEfiAcpi20TableGuid)) {
-            EFI_ACPI_2_0_COMMON_HEADER *acpi_header= entry->VendorTable;
-
+            acpi_header= entry->VendorTable;
             AsciiPrint("ACPI 2.0 table at 0x%p, signature \"% 8.8a\"\n",
-                       entry->VendorTable,
-                       (const char *)&acpi_header->Signature);
+                       acpi_header, (const char *)&acpi_header->Signature);
         }
     }
 
@@ -159,6 +160,61 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         AsciiPrint("CloseProtocol: %r\n", status);
         return EFI_SUCCESS;
     }
+
+    status= SystemTable->BootServices->CloseProtocol(
+                ImageHandle, &gEfiLoadedImageProtocolGuid,
+                ImageHandle, NULL);
+    if(status != EFI_SUCCESS) {
+        AsciiPrint("CloseProtocol: %r\n", status);
+        return EFI_SUCCESS;
+    }
+
+    UINTN mmap_size, mmap_key, mmap_d_size, mmap_n_desc;
+    UINT32 mmap_d_ver;
+    EFI_MEMORY_DESCRIPTOR *mmap;
+
+    mmap_size= 0;
+    status= SystemTable->BootServices->GetMemoryMap(
+                &mmap_size, NULL, &mmap_key, &mmap_d_size, &mmap_d_ver);
+    if(status != EFI_BUFFER_TOO_SMALL) {
+        AsciiPrint("GetMemoryMap: %r\n", status);
+        return EFI_SUCCESS;
+    }
+    mmap_n_desc= mmap_size / mmap_d_size;
+    AsciiPrint("Got %d memory map entries (%dB).\n", mmap_n_desc, mmap_size);
+
+    status= SystemTable->BootServices->AllocatePool(
+                EfiLoaderData, mmap_size, (void **)&mmap);
+    if(status != EFI_SUCCESS) {
+        AsciiPrint("AllocatePool: %r\n", status);
+        return EFI_SUCCESS;
+    }
+
+    status= SystemTable->BootServices->GetMemoryMap(
+                &mmap_size, mmap, &mmap_key, &mmap_d_size, &mmap_d_ver);
+    if(status != EFI_SUCCESS) {
+        AsciiPrint("GetMemoryMap: %r\n", status);
+        return EFI_SUCCESS;
+    }
+    AsciiPrint("Memory map at %p, key: %x, descriptor version: %x\n",
+               mmap, mmap_key, mmap_d_ver);
+
+    cpu_driver_entry enter_cpu_driver= (cpu_driver_entry)img_buffer;
+
+    AsciiPrint("Terminating boot services and jumping to image at %p\n",
+               enter_cpu_driver);
+
+    status= SystemTable->BootServices->ExitBootServices(
+                ImageHandle, mmap_key);
+    if(status != EFI_SUCCESS) {
+        AsciiPrint("ExitBootServices: %r\n", status);
+        return EFI_SUCCESS;
+    }
+
+    /*** EFI boot services are now terminated, we're on our own. */
+
+    /* Jump to the start of the loaded image - doesn't return. */
+    enter_cpu_driver(acpi_header, mmap);
 
     return EFI_SUCCESS;
 }
