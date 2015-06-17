@@ -1,29 +1,35 @@
-# Copyright 2015 ETH Zürich, all rights reserved.
+# Copyright 2015 ETH Zuerich, all rights reserved.
 
 [Defines]
-  INF_VERSION                    = 0x00010005
-  BASE_NAME                      = Hagfish
-  FILE_GUID                      = bbfbca3c-6e36-4a35-b7de-a27e9c7312e8
-  MODULE_TYPE                    = UEFI_APPLICATION
-  VERSION_STRING                 = 0.1
-  ENTRY_POINT                    = UefiMain
+    INF_VERSION                    = 0x00010005
+    BASE_NAME                      = Hagfish
+    FILE_GUID                      = bbfbca3c-6e36-4a35-b7de-a27e9c7312e8
+    MODULE_TYPE                    = UEFI_APPLICATION
+    VERSION_STRING                 = 0.1
+    ENTRY_POINT                    = UefiMain
 
 [Sources]
-  Hagfish.c
+    Hagfish.c
 
 [Packages]
-  Hagfish/Hagfish.dec
-  MdePkg/MdePkg.dec
-  MdeModulePkg/MdeModulePkg.dec
+    Hagfish/Hagfish.dec
+    MdePkg/MdePkg.dec
+    MdeModulePkg/MdeModulePkg.dec
 
 [LibraryClasses]
-  UefiApplicationEntryPoint
-  UefiLib
-  PcdLib
-
-[FeaturePcd]
-  gEfiMdeModulePkgTokenSpaceGuid.PcdHelloWorldPrintEnable
+    UefiApplicationEntryPoint
+    UefiLib
 
 [Pcd]
-  gEfiMdeModulePkgTokenSpaceGuid.PcdHelloWorldPrintString || gEfiMdeModulePkgTokenSpaceGuid.PcdHelloWorldPrintEnable  ## Valid when gEfiMdeModulePkgTokenSpaceGuid.PcdHelloWorldPrintEnable
-  gEfiMdeModulePkgTokenSpaceGuid.PcdHelloWorldPrintTimes  || gEfiMdeModulePkgTokenSpaceGuid.PcdHelloWorldPrintEnable  ## Valid when gEfiMdeModulePkgTokenSpaceGuid.PcdHelloWorldPrintEnable
+
+[Guids]
+    gEfiAcpiTableGuid
+    gEfiAcpi10TableGuid
+    gEfiAcpi20TableGuid
+    gEfiSmbiosTableGuid
+
+[Protocols]
+    gEfiLoadedImageProtocolGuid
+    gEfiPxeBaseCodeProtocolGuid
+    gEfiLoadFileProtocolGuid
+    gEfiLoadFile2ProtocolGuid
