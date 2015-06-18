@@ -1,0 +1,78 @@
+# Copyright 2015 ETH Zuerich, all rights reserved.
+
+[Defines]
+    INF_VERSION                    = 0x00010005
+    BASE_NAME                      = ELF
+    FILE_GUID                      = aa396f02-342f-45d5-b3bb-56c5e818d4a7 
+    MODULE_TYPE                    = BASE
+    VERSION_STRING                 = 0.1
+    LIBRARY_CLASS                  = EFI
+    DEFINE COMMON_CFLAGS           = -nostdinc
+
+[Sources]
+    elf_begin.c
+    elf.c
+    elf_cntl.c
+    elf_data.c
+    elf_end.c
+    elf_errmsg.c
+    elf_errno.c
+    elf_fill.c
+    elf_flag.c
+    elf_getarhdr.c
+    elf_getarsym.c
+    elf_getbase.c
+    elf_getident.c
+    elf_hash.c
+    elf_kind.c
+    elf_memory.c
+    elf_next.c
+    elf_open.c
+    elf_phnum.c
+    elf_rand.c
+    elf_rawfile.c
+    elf_scn.c
+    elf_shnum.c
+    elf_shstrndx.c
+    elf_strptr.c
+    elf_version.c
+    gelf_cap.c
+    gelf_checksum.c
+    gelf_dyn.c
+    gelf_ehdr.c
+    gelf_fsize.c
+    gelf_getclass.c
+    gelf_move.c
+    gelf_phdr.c
+    gelf_rela.c
+    gelf_rel.c
+    gelf_shdr.c
+    gelf_sym.c
+    gelf_syminfo.c
+    gelf_symshndx.c
+    gelf_xlate.c
+    libelf_align.c
+    libelf_allocate.c
+    libelf_ar.c
+    libelf_ar_util.c
+    libelf_checksum.c
+    libelf_data.c
+    libelf_ehdr.c
+    libelf_extended.c
+    libelf_memory.c
+    libelf_phdr.c
+    libelf_shdr.c
+    libelf_xlate.c
+
+[Packages]
+    MdePkg/MdePkg.dec
+    Hagfish/Hagfish.dec
+
+[LibraryClasses]
+    BaseLib
+    BaseMemoryLib
+    MemoryAllocationLib
+    DebugLib
+
+[BuildOptions]
+    GCC:*_*_AARCH64_CC_FLAGS = $(COMMON_CFLAGS) -D LIBELF_ARCH=EM_AARCH64 -D LIBELF_BYTEORDER=ELFDATA2LSB -D LIBELF_CLASS=ELFCLASS64

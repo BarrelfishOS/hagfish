@@ -48,3 +48,4 @@
 
 [Components]
   Hagfish/Application/Hagfish/Hagfish.inf
+  Hagfish/Library/ELF/ELF.inf
