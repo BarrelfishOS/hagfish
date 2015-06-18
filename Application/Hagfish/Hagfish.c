@@ -1,6 +1,8 @@
 /* @file Hagfish.c
 */
 
+#include <libelf.h>
+
 #include <Uefi.h>
 
 #include <Guid/Acpi.h>
@@ -20,14 +22,6 @@
 #include <Protocol/LoadFile.h>
 #include <Protocol/LoadFile2.h>
 #include <Protocol/PxeBaseCode.h>
-
-/**
-  @param[in] ImageHandle    The firmware allocated handle for the EFI image.  
-  @param[in] SystemTable    A pointer to the EFI System Table.
-  
-  @retval EFI_SUCCESS       The entry point is executed successfully.
-  @retval other             Some error occurs when executing this entry point.
-**/
 
 void
 dump(UINT64 *base, int len) {

@@ -15,10 +15,13 @@
 
 
 [Defines]
-  DEC_SPECIFICATION              = 0x00010005
-  PACKAGE_NAME                   = Hagfish
-  PACKAGE_GUID                   = 7d848683-d6de-4fad-b2e9-fb4473351b18
-  PACKAGE_VERSION                = 0.01
+    DEC_SPECIFICATION              = 0x00010005
+    PACKAGE_NAME                   = Hagfish
+    PACKAGE_GUID                   = 7d848683-d6de-4fad-b2e9-fb4473351b18
+    PACKAGE_VERSION                = 0.01
 
 [Includes]
-  Include
+    Include
+
+[LibraryClasses]
+    ELF|Include/ELF/libelf.h
