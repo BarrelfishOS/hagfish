@@ -10,6 +10,7 @@
     DEFINE COMMON_CFLAGS           = -nostdinc
 
 [Sources]
+    errno.c
     elf_begin.c
     elf.c
     elf_cntl.c
@@ -63,6 +64,9 @@
     libelf_phdr.c
     libelf_shdr.c
     libelf_xlate.c
+    libelf_fsize.c
+    libelf_msize.c
+    libelf_convert.c
 
 [Packages]
     MdePkg/MdePkg.dec

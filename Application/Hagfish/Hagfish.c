@@ -24,12 +24,12 @@
 #include <Protocol/PxeBaseCode.h>
 
 void
-dump(UINT64 *base, int len) {
+dump(UINT32 *base, int len) {
     int j;
 
     AsciiPrint("Dump %p\n", base);
-    for(j= 0; j*sizeof(UINT64) < len; j++) {
-        AsciiPrint("%016.16x\n", base[j]);
+    for(j= 0; j*sizeof(UINT32) < len; j++) {
+        AsciiPrint("%08.8x\n", base[j]);
     }
     AsciiPrint("\n");
 }
@@ -112,7 +112,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
                server_ip.v4.Addr[0], server_ip.v4.Addr[1],
                server_ip.v4.Addr[2], server_ip.v4.Addr[3]);
 
-    char *filename= "xgene-test.img";
+    char *filename= "xgene-test.elf";
     UINT64 size;
     status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
                        FALSE, &size, NULL, &server_ip, (UINT8 *)filename,
@@ -163,6 +163,103 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         return EFI_SUCCESS;
     }
 
+    elf_version(EV_CURRENT);
+
+    Elf *img_elf= elf_memory(img_buffer, size);
+    if(!img_elf) {
+        AsciiPrint("elf_memory: %a\n", elf_errmsg(elf_errno()));
+        return EFI_SUCCESS;
+    }
+
+    size_t n_scn;
+    status= elf_getshdrnum(img_elf, &n_scn);
+    if(status) {
+        AsciiPrint("elf_getshdrnum: %a\n", elf_errmsg(elf_errno()));
+        return EFI_SUCCESS;
+    }
+
+    const char *e_ident= elf_getident(img_elf, NULL);
+    if(!e_ident) {
+        AsciiPrint("elf_getident: %a\n", elf_errmsg(elf_errno()));
+        return EFI_SUCCESS;
+    }
+
+    if(e_ident[EI_CLASS] != ELFCLASS64 || e_ident[EI_DATA] != ELFDATA2LSB) {
+        AsciiPrint("Error: Not a 64-bit little-endian ELF\n");
+        return EFI_SUCCESS;
+    }
+
+    if(e_ident[EI_OSABI] != ELFOSABI_STANDALONE &&
+       e_ident[EI_OSABI] != ELFOSABI_NONE) {
+        AsciiPrint("Warn: Compiled for OS ABI %d.  Wrong compiler?\n",
+                   e_ident[EI_OSABI]);
+    }
+
+    Elf64_Ehdr *ehdr= elf64_getehdr(img_elf);
+    if(!ehdr) {
+        AsciiPrint("elf64_getehdr: %a\n", elf_errmsg(elf_errno()));
+        return EFI_SUCCESS;
+    }
+
+    if(ehdr->e_type != ET_EXEC) {
+        AsciiPrint("Error: Not an executable\n");
+        return EFI_SUCCESS;
+    }
+
+    if(ehdr->e_machine != EM_AARCH64) {
+        AsciiPrint("Error: Not AArch64\n");
+        return EFI_SUCCESS;
+    }
+
+    AsciiPrint("ELF entry point is %x\n", ehdr->e_entry);
+
+    size_t phnum;
+    status= elf_getphdrnum(img_elf, &phnum);
+    if(status) {
+        AsciiPrint("elf64_getehdr: %a\n", elf_errmsg(elf_errno()));
+        return EFI_SUCCESS;
+    }
+    AsciiPrint("%d program header(s)\n", phnum);
+
+    Elf64_Phdr *phdr= elf64_getphdr(img_elf);
+    if(!phdr) {
+        AsciiPrint("elf64_getphdr: %a\n", elf_errmsg(elf_errno()));
+        return EFI_SUCCESS;
+    }
+
+    cpu_driver_entry enter_cpu_driver= (cpu_driver_entry)0;
+    for(i= 0; i < phnum; i++) {
+        AsciiPrint("Segment %d load address %p, file size %x, memory size %x",
+                   i, phdr[i].p_vaddr, phdr[i].p_filesz, phdr[i].p_memsz);
+        if(phdr[i].p_type == PT_LOAD) AsciiPrint(" LOAD");
+        AsciiPrint("\n");
+
+        UINTN p_pages= (phdr[i].p_memsz + (4096-1)) / 4096;
+        void *p_buf;
+
+        p_buf= AllocatePages(p_pages);
+        if(!p_buf) {
+            AsciiPrint("AllocatePages: %r\n", status);
+            return EFI_SUCCESS;
+        }
+        ZeroMem(p_buf, p_pages * 4096);
+        AsciiPrint("Loading into %d pages at %p\n", p_pages, p_buf);
+
+        CopyMem(p_buf, img_buffer + phdr[i].p_offset, phdr[i].p_filesz);
+
+        if(ehdr->e_entry <= phdr[i].p_vaddr &&
+           ehdr->e_entry - phdr[i].p_vaddr < phdr[i].p_memsz) {
+            enter_cpu_driver=
+                (cpu_driver_entry)(p_buf + (ehdr->e_entry - phdr[i].p_vaddr));
+        }
+    }
+
+    AsciiPrint("Relocated entry point is %p\n", enter_cpu_driver);
+
+    dump((UINT32 *)enter_cpu_driver, 256);
+
+    elf_end(img_elf);
+
     UINTN mmap_size, mmap_key, mmap_d_size, mmap_n_desc;
     UINT32 mmap_d_ver;
     EFI_MEMORY_DESCRIPTOR *mmap;
@@ -192,8 +289,6 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     }
     AsciiPrint("Memory map at %p, key: %x, descriptor version: %x\n",
                mmap, mmap_key, mmap_d_ver);
-
-    cpu_driver_entry enter_cpu_driver= (cpu_driver_entry)img_buffer;
 
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
                enter_cpu_driver);
