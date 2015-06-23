@@ -60,6 +60,7 @@
 #define MULTIBOOT_TAG_TYPE_NETWORK           16
 #define MULTIBOOT_TAG_TYPE_EFI_MMAP          17
 #define MULTIBOOT_TAG_TYPE_EFI_BS            18
+#define MULTIBOOT_TAG_TYPE_MODULE_64         19
 
 #define MULTIBOOT_HEADER_TAG_END  0
 #define MULTIBOOT_HEADER_TAG_INFORMATION_REQUEST  1
@@ -72,6 +73,7 @@
 
 #define MULTIBOOT_ARCHITECTURE_I386  0
 #define MULTIBOOT_ARCHITECTURE_MIPS32  4
+#define MULTIBOOT_ARCHITECTURE_AARCH64 183
 #define MULTIBOOT_HEADER_TAG_OPTIONAL 1
 
 #define MULTIBOOT_CONSOLE_FLAGS_CONSOLE_REQUIRED 1
@@ -198,6 +200,15 @@ struct multiboot_tag_module
   multiboot_uint32_t size;
   multiboot_uint32_t mod_start;
   multiboot_uint32_t mod_end;
+  char cmdline[0];
+};
+
+struct multiboot_tag_module_64
+{
+  multiboot_uint32_t type;
+  multiboot_uint32_t size;
+  multiboot_uint64_t mod_start;
+  multiboot_uint64_t mod_end;
   char cmdline[0];
 };
 

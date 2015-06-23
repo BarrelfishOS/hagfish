@@ -321,7 +321,7 @@ load_component(struct component_config *cmp, const char *buf,
 
     /* Allocate a page-aligned buffer. */
     UINTN npages= roundpage(cmp->image_size);
-    cmp->load_address= AllocateLowPages(npages);
+    cmp->load_address= AllocatePages(npages);
     if(!cmp->load_address) {
         AsciiPrint("\nFailed to allocate %d pages\n", npages);
         return 0;
@@ -355,8 +355,8 @@ ntstring(char *dest, const char *src, size_t len) {
  * preallocated, but left empty until all allocations are finished. */
 void *
 create_multiboot_info(struct hagfish_config *cfg,
-                      EFI_ACPI_COMMON_HEADER *acpi1_header,
-                      EFI_ACPI_2_0_COMMON_HEADER *acpi2_header,
+                      EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi1_header,
+                      EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi2_header,
                       EFI_PXE_BASE_CODE_PROTOCOL *pxe,
                       Elf *kernel_elf, size_t n_scn,
                       struct multiboot_tag_efi_mmap **mmap_tag,
@@ -377,12 +377,12 @@ create_multiboot_info(struct hagfish_config *cfg,
     /* ACPI 1.0 header */
     if(acpi1_header) {
         size+= sizeof(struct multiboot_tag_old_acpi)
-             + acpi1_header->Length;
+             + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
     /* ACPI 2.0+ header */
     if(acpi2_header) {
         size+= sizeof(struct multiboot_tag_new_acpi)
-             + acpi2_header->Length;
+             + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
 /* XXX */
 #if 0
@@ -392,11 +392,11 @@ create_multiboot_info(struct hagfish_config *cfg,
 #endif
 /* XXX */
     /* Kernel module tag, including command line and ELF image */
-    size+= sizeof(struct multiboot_tag_module)
+    size+= sizeof(struct multiboot_tag_module_64)
          + cfg->kernel->args_len+1 + cfg->kernel->image_size;
     /* All other modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
-        size+= sizeof(struct multiboot_tag_module)
+        size+= sizeof(struct multiboot_tag_module_64)
              + cmp->args_len+1 + cmp->image_size;
     }
     /* EFI memory map */
@@ -407,13 +407,14 @@ create_multiboot_info(struct hagfish_config *cfg,
 
     /* Round up to a page size and allocate. */
     npages= roundpage(size);
-    multiboot= AllocateLowPages(npages);
+    multiboot= AllocatePages(npages);
     if(!multiboot) {
-        AsciiPrint("AllocateLowPages: failed\n");
+        AsciiPrint("AllocatePages: failed\n");
         return NULL;
     }
     ZeroMem(multiboot, npages * PAGE_4k);
-    AsciiPrint("Allocated %d pages at %p.\n", npages, multiboot);
+    AsciiPrint("Allocated %d pages for multiboot info at %p.\n",
+               npages, multiboot);
 
     cursor= multiboot;
     /* Write the fixed header. */
@@ -458,11 +459,12 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_OLD;
         acpi->size= sizeof(struct multiboot_tag_old_acpi)
-                  + acpi1_header->Length;
-        CopyMem(&acpi->rsdp, acpi1_header, acpi1_header->Length);
+                  + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        CopyMem(&acpi->rsdp, acpi1_header,
+                sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= sizeof(struct multiboot_tag_old_acpi)
-               + acpi1_header->Length;
+               + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
     /* Add the ACPI 2.0+ header */
     if(acpi2_header) {
@@ -471,49 +473,50 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_NEW;
         acpi->size= sizeof(struct multiboot_tag_new_acpi)
-                  + acpi2_header->Length;
-        CopyMem(&acpi->rsdp, acpi2_header, acpi2_header->Length);
+                  + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        CopyMem(&acpi->rsdp, acpi2_header,
+                sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= sizeof(struct multiboot_tag_old_acpi)
-               + acpi2_header->Length;
+               + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
     /* XXX - Add the ELF section headers. */
     /* Add the kernel module. */
     {
-        struct multiboot_tag_module *kernel=
-            (struct multiboot_tag_module *)cursor;
+        struct multiboot_tag_module_64 *kernel=
+            (struct multiboot_tag_module_64 *)cursor;
 
-        kernel->type= MULTIBOOT_TAG_TYPE_MODULE;
-        kernel->size= sizeof(struct multiboot_tag_module)
+        kernel->type= MULTIBOOT_TAG_TYPE_MODULE_64;
+        kernel->size= sizeof(struct multiboot_tag_module_64)
                     + cfg->kernel->args_len+1;
         kernel->mod_start=
-            (multiboot_uint32_t)(uintptr_t)cfg->kernel->load_address;
+            (multiboot_uint64_t)cfg->kernel->load_address;
         kernel->mod_end=
-            (multiboot_uint32_t)(uintptr_t)cfg->kernel->load_address +
-            (cfg->kernel->image_size - 1);
+            (multiboot_uint64_t)(cfg->kernel->load_address +
+                                 (cfg->kernel->image_size - 1));
         ntstring(kernel->cmdline,
                  cfg->buf + cfg->kernel->args_start,
                  cfg->kernel->args_len);
 
-        cursor+= sizeof(struct multiboot_tag_module)
+        cursor+= sizeof(struct multiboot_tag_module_64)
                + cfg->kernel->args_len+1 + cfg->kernel->image_size;
     }
     /* Add the remaining modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
-        struct multiboot_tag_module *module=
-            (struct multiboot_tag_module *)cursor;
+        struct multiboot_tag_module_64 *module=
+            (struct multiboot_tag_module_64 *)cursor;
 
-        module->type= MULTIBOOT_TAG_TYPE_MODULE;
-        module->size= sizeof(struct multiboot_tag_module)
+        module->type= MULTIBOOT_TAG_TYPE_MODULE_64;
+        module->size= sizeof(struct multiboot_tag_module_64)
                     + cmp->args_len+1;
         module->mod_start=
-            (multiboot_uint32_t)(uintptr_t)cmp->load_address;
+            (multiboot_uint64_t)cmp->load_address;
         module->mod_end=
-            (multiboot_uint32_t)(uintptr_t)cmp->load_address +
-            (cmp->image_size - 1);
+            (multiboot_uint64_t)(cmp->load_address +
+                                 (cmp->image_size - 1));
         ntstring(module->cmdline, cfg->buf + cmp->args_start, cmp->args_len);
 
-        cursor+= sizeof(struct multiboot_tag_module)
+        cursor+= sizeof(struct multiboot_tag_module_64)
                + cmp->args_len+1 + cmp->image_size;
     }
     /* Record the position of the memory map, to be filled in after we've
@@ -566,7 +569,7 @@ print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
     AsciiPrint("Got %d memory map entries of %dB (%dB).\n",
                mmap_n_desc, mmap_d_size, mmap_size);
 
-    AsciiPrint("Type         Physical         Virtual     "
+    AsciiPrint("Type         PStart           PEnd        "
                "      Size      Attributes\n");
     for(i= 0; i < mmap_n_desc; i++) {
         EFI_MEMORY_DESCRIPTOR *desc= 
@@ -574,7 +577,8 @@ print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
 
         AsciiPrint("%-12a %016lx %016lx %9ldkB %01x\n",
             mmap_types[desc->Type],
-            desc->PhysicalStart, desc->VirtualStart,
+            desc->PhysicalStart,
+            desc->PhysicalStart + (desc->NumberOfPages<<12) - 1,
             (desc->NumberOfPages<<12)/1024, desc->Attribute);
     }
 
@@ -587,8 +591,8 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     EFI_LOADED_IMAGE_PROTOCOL *hag_image;
     EFI_PXE_BASE_CODE_PROTOCOL *pxe;
     EFI_IP_ADDRESS server_ip, *my_ip;
-    EFI_ACPI_2_0_COMMON_HEADER *acpi2_header= NULL;
-    EFI_ACPI_COMMON_HEADER *acpi1_header= NULL;
+    EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi2_header= NULL;
+    EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi1_header= NULL;
     int i;
 
     AsciiPrint("Hagfish UEFI loader starting\n");
@@ -612,7 +616,8 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     print_memory_map(SystemTable);
 
     /* Search for the ACPI tables. */
-    AsciiPrint("Found %d tables\n", SystemTable->NumberOfTableEntries);
+    AsciiPrint("Found %d EFI configuration tables\n",
+               SystemTable->NumberOfTableEntries);
     for(i= 0; i < SystemTable->NumberOfTableEntries; i++) {
         EFI_CONFIGURATION_TABLE *entry= &SystemTable->ConfigurationTable[i];
 
@@ -621,7 +626,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
             AsciiPrint("ACPI 2.0 table at %p, signature \"% 8.8a\"\n",
                        acpi2_header, (const char *)&acpi2_header->Signature);
         }
-        else if(CompareGuid(&entry->VendorGuid, &gEfiAcpiTableGuid)) {
+        else if(CompareGuid(&entry->VendorGuid, &gEfiAcpi10TableGuid)) {
             acpi1_header= entry->VendorTable;
             AsciiPrint("ACPI 1.0 table at %p, signature \"% 8.8a\"\n",
                        acpi1_header, (const char *)&acpi1_header->Signature);
@@ -800,9 +805,9 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         UINTN p_pages= (phdr[i].p_memsz + (4096-1)) / 4096;
         void *p_buf;
 
-        p_buf= AllocateLowPages(p_pages);
+        p_buf= AllocatePages(p_pages);
         if(!p_buf) {
-            AsciiPrint("AllocateLowPages: %r\n", status);
+            AsciiPrint("AllocatePages: %r\n", status);
             return EFI_SUCCESS;
         }
         ZeroMem(p_buf, p_pages * 4096);
@@ -891,7 +896,6 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     mmap_tag->descr_size= mmap_d_size;
     mmap_tag->descr_vers= mmap_d_ver;
 
-#if 0
     /* Exit EFI boot services. */
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
                enter_cpu_driver);
@@ -907,7 +911,6 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
     /* Jump to the start of the loaded image - doesn't return. */
     enter_cpu_driver(MULTIBOOT2_HEADER_MAGIC, multiboot);
-#endif
 
     return EFI_SUCCESS;
 }
