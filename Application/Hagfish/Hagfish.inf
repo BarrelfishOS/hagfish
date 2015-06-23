@@ -21,8 +21,6 @@
     UefiLib
     ELF
 
-[Pcd]
-
 [Guids]
     gEfiAcpiTableGuid
     gEfiAcpi10TableGuid
