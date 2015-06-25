@@ -1,11 +1,7 @@
 /* @file Hagfish.c
 */
 
-#include <libelf.h>
-#include <multiboot2.h>
-
-#include <AArch64/vm.h>
-
+/* EDK Headers */
 #include <Uefi.h>
 
 #include <Guid/Acpi.h>
@@ -19,14 +15,24 @@
 #include <Library/DevicePathLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
-#include <Library/UefiLib.h>
 #include <Library/UefiApplicationEntryPoint.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/UefiLib.h>
 
 #include <Protocol/LoadedImage.h>
 #include <Protocol/LoadFile.h>
 #include <Protocol/LoadFile2.h>
 #include <Protocol/PxeBaseCode.h>
+
+/* Package headers */
+#include <libelf.h>
+#include <multiboot2.h>
+
+#include <AArch64/vm.h>
+
+/* Application headers */
+#include <Allocation.h>
+#include <Config.h>
 
 #define COVER(x, y) (((x) + ((y)-1)) / (y))
 #define ROUNDUP(x, y) (COVER(x,y) * (y))
@@ -36,325 +42,8 @@
 #define BLOCK_512G (1ULL<<39)
 #define roundpage(x) COVER((x), PAGE_4k)
 
-/* We preallocate space for the memory map, to avoid the recursion between
- * checking the memory map size and allocating memory for it.  This will
- * obviously fail if the memory map is particularly big. */
-#define MEM_MAP_SIZE 8192
-
-#define DEFAULT_STACK_SIZE 16384
-
-/* We allocate three new EFI memory types to signal to the CPU driver where
- * its code, data, stack and Multiboot info block are located, so that it can
- * avoid trampling on them. */
-typedef enum {
-    EfiBarrelfishFirstMemType=   0x80000000,
-
-    EfiBarrelfishCPUDriver=      0x80000000,
-    EfiBarrelfishCPUDriverStack= 0x80000001,
-    EfiBarrelfishMultibootData=  0x80000002,
-    EfiBarrelfishELFData=        0x80000003,
-    EfiBarrelfishBootPageTable=  0x80000004,
-
-    EfiBarrelfishMaxMemType
-} EFI_BARRELFISH_MEMORY_TYPE;
-
-void *
-allocate_pages(UINTN n, EFI_MEMORY_TYPE type) {
-    EFI_STATUS status;
-    EFI_PHYSICAL_ADDRESS memory;
-
-    if(n == 0) return NULL;
-
-    status = gBS->AllocatePages(AllocateAnyPages, type, n, &memory);
-    if(EFI_ERROR(status)) {
-        AsciiPrint("AllocatePages: %r\n", status);
-        return NULL;
-    }
-
-    return (void *)memory;
-}
-
-void *
-allocate_pool(UINTN size, EFI_MEMORY_TYPE type) {
-    EFI_STATUS status;
-    void *memory;
-
-    if(size == 0) return NULL;
-
-    status = gBS->AllocatePool(type, size, &memory);
-    if(EFI_ERROR(status)) {
-        AsciiPrint("AllocatePages: %r\n", status);
-        return NULL;
-    }
-
-    return memory;
-}
-
-void *
-allocate_zero_pool(UINTN size, EFI_MEMORY_TYPE type) {
-    void *memory= allocate_pool(size, type);
-
-    if(memory) ZeroMem(memory, size);
-
-    return memory;
-}
-
 typedef void (*cpu_driver_entry)(uint32_t multiboot_magic,
                                  void *multiboot_info);
-
-/*** Hagfish configuration file loading and parsing. ***/
-const char *config_fmt= "hagfish.%d.%d.%d.%d.cfg";
-
-struct component_config {
-    UINTN path_start, path_len;
-    UINTN args_start, args_len;
-
-    UINTN image_size;
-    void *load_address;
-
-    struct component_config *next;
-};
-
-struct hagfish_config {
-    const char *buf;
-    UINTN stack_size;
-    struct component_config *kernel;
-    struct component_config *first_module, *last_module;
-};
-
-static inline int
-isnewline(char c) {
-    return c == '\n';
-}
-
-static inline int
-iswhitespace(char c) {
-    return c == ' ' || c == '\n' || c == '\t' || c == '\r';
-}
-
-static inline int
-iscomment(char c) {
-    return c == '#';
-}
-
-static inline int
-istoken(char c) {
-    return !iswhitespace(c) && !iscomment(c);
-}
-
-static UINTN
-skip_whitespace(const char *buf, UINTN size, UINTN start, int skip_newlines) {
-    ASSERT(0);
-    ASSERT(start < size);
-    UINTN i;
-
-    for(i= start;
-        i < size && (iswhitespace(buf[i]) |
-                     (skip_newlines && isnewline(buf[i])));
-        i++);
-
-    ASSERT(start <= i);
-    ASSERT(i <= size);
-    ASSERT(i == size ||
-           !iswhitespace(buf[i]) ||
-           (!skip_newlines && isnewline(buf[i])));
-    return i;
-}
-
-static UINTN
-find_eol(const char *buf, UINTN size, UINTN start) {
-    ASSERT(start < size);
-    UINTN i;
-
-    for(i= start; i < size && buf[i] != '\n'; i++);
-
-    ASSERT(start <= i);
-    ASSERT(i <= size);
-    ASSERT(i == size || buf[i] == '\n');
-    return i;
-}
-
-static UINTN
-find_token(const char *buf, UINTN size, UINTN start, int skip_newlines) {
-    ASSERT(start < size);
-    UINTN i= start;
-
-    while(i < size && !istoken(buf[i])) {
-        if(iswhitespace(buf[i])) {
-            /* Skip whitespace. */
-            i= skip_whitespace(buf, size, i, skip_newlines);
-        }
-        else {
-            /* Find the newline. */
-            i= find_eol(buf, size, i);
-            /* Skip over it, if not at EOF. */
-            if(i < size) i++;
-        }
-    }
-
-    ASSERT(start <= i);
-    ASSERT(i <= size);
-    ASSERT(i == size || istoken(buf[i]));
-    return i;
-}
-
-static UINTN
-get_token(const char *buf, UINTN size, UINTN start) {
-    ASSERT(start < size);
-    ASSERT(istoken(buf[start]));
-    UINTN i;
-
-    for(i= start; i < size && istoken(buf[i]); i++);
-
-    ASSERT(start < i);
-    ASSERT(i <= size);
-    ASSERT(istoken(buf[i-1]));
-    return i;
-}
-
-int
-get_cmdline(const char *buf, UINTN size, UINTN *cursor,
-            UINTN *cstart, UINTN *clen, UINTN *astart, UINTN *alen) {
-    ASSERT(*cursor < size);
-    *cursor= find_token(buf, size, *cursor, 0);
-    if(!istoken(buf[*cursor])) {
-        AsciiPrint("Missing command line\n");
-        return 0;
-    }
-    *astart= *cstart= *cursor; /* Path starts here. */
-    *cursor= get_token(buf, size, *cursor);
-    *clen= *cursor - *cstart; /* Path ends here. */
-    ASSERT(*clen <= size - *cursor);
-    *cursor= find_eol(buf, size, *cursor);
-    *alen= *cursor - *astart;
-    ASSERT(*alen <= size - *cursor); /* Arguments end here. */
-
-    return 1;
-}
-
-struct hagfish_config *
-parse_config(const char *buf, UINTN size) {
-    UINTN cursor= 0;
-    struct hagfish_config *cfg;
-
-    cfg= (struct hagfish_config *)allocate_zero_pool(
-            sizeof(struct hagfish_config), EfiLoaderData);
-    if(!cfg) goto parse_fail;
-    cfg->buf= buf;
-    cfg->stack_size= DEFAULT_STACK_SIZE;
-
-    while(cursor < size) {
-        cursor= find_token(buf, size, cursor, 1);
-        if(cursor < size) {
-            UINTN tstart= cursor, tlen;
-
-            ASSERT(istoken(buf[cursor]));
-            cursor= get_token(buf, size, cursor);
-            tlen= cursor - tstart;
-            ASSERT(tlen <= size - cursor);
-
-            if(!AsciiStrnCmp("title", buf+tstart, 5)) {
-                /* Ignore the title. */
-                ASSERT(cursor < size);
-                cursor= find_eol(buf, size, cursor);
-            }
-            if(!AsciiStrnCmp("stack", buf+tstart, 6)) {
-                char arg[10];
-                UINTN astart, alen;
-
-                cursor= skip_whitespace(buf, size, cursor, FALSE);
-                if(!istoken(buf[cursor])) {
-                    AsciiPrint("Missing stack size\n");
-                    goto parse_fail;
-                }
-                astart= cursor;
-
-                cursor= get_token(buf, size, cursor);
-                alen= cursor - astart;
-                ASSERT(alen <= size - cursor);
-
-                if(alen > 9) {
-                    AsciiPrint("Stack size too large\n");
-                    goto parse_fail;
-                }
-
-                CopyMem(arg, buf+astart, alen);
-                arg[alen]= '\0';
-                cfg->stack_size= AsciiStrDecimalToUintn(arg);
-            }
-            if(!AsciiStrnCmp("kernel", buf+tstart, 6)) {
-                if(cfg->kernel) {
-                    AsciiPrint("Kernel defined twice\n");
-                    goto parse_fail;
-                }
-
-                cfg->kernel= (struct component_config *)
-                    allocate_zero_pool(sizeof(struct component_config),
-                                       EfiLoaderData);
-                if(!cfg->kernel) goto parse_fail;
-
-                /* Grab the command line. */
-                if(!get_cmdline(buf, size, &cursor,
-                                &cfg->kernel->path_start,
-                                &cfg->kernel->path_len,
-                                &cfg->kernel->args_start,
-                                &cfg->kernel->args_len))
-                    goto parse_fail;
-            }
-            else if(!AsciiStrnCmp("module", buf+tstart, 6)) {
-                struct component_config *module=(struct component_config *)
-                    allocate_zero_pool(sizeof(struct component_config),
-                                       EfiLoaderData);
-
-                /* Grab the command line. */
-                if(!get_cmdline(buf, size, &cursor,
-                                &module->path_start,
-                                &module->path_len,
-                                &module->args_start,
-                                &module->args_len))
-                    goto parse_fail;
-
-                if(cfg->first_module) {
-                    ASSERT(cfg->last_module);
-                    cfg->last_module->next= module;
-                    cfg->last_module= module;
-                }
-                else {
-                    ASSERT(!cfg->last_module);
-                    cfg->first_module= module;
-                    cfg->last_module= module;
-                }
-            }
-            else {
-                AsciiPrint("Unrecognised entry \"%.*a\", skipping line.\n",
-                        tlen, buf + tstart);
-                cursor= find_eol(buf, size, cursor);
-            }
-        }
-    }
-
-    if(!cfg->kernel) {
-        AsciiPrint("No kernel image specified\n");
-        goto parse_fail;
-    }
-
-    return cfg;
-
-parse_fail:
-    if(cfg) {
-        if(cfg->kernel) free(cfg->kernel);
-
-        struct component_config *cmp= cfg->first_module;
-        while(cmp) {
-            struct component_config *next= cmp->next;
-            free(cmp);
-            cmp= next;
-        }
-
-        free(cfg);
-    }
-    return NULL;
-}
 
 /* Load a component (kernel or module) over TFTP, and fill in the relevant
  * fields in the configuration structure. */
@@ -686,6 +375,8 @@ get_memory_map(EFI_SYSTEM_TABLE *SystemTable,
         AsciiPrint("GetMemoryMap: %r\n", status);
         return status;
     }
+
+    return EFI_SUCCESS;
 }
 
 struct ram_region {
@@ -965,6 +656,24 @@ get_region_list_fail:
     return NULL;
 }
 
+void
+print_ram_regions(struct region_list *region_list) {
+    size_t i;
+    uint64_t total= 0;
+
+    AsciiPrint("%d RAM region(s)\n", region_list->nregions);
+
+    for(i= 0; i < region_list->nregions; i++) {
+        AsciiPrint("%2d %p-%p\n", i,
+                   region_list->regions[i].base,
+                   region_list->regions[i].base +
+                   region_list->regions[i].npages * PAGE_4k);
+        total+= region_list->regions[i].npages * PAGE_4k;
+    }
+
+    AsciiPrint("%lldkB total\n", total / 1024);
+}
+
 EFI_STATUS EFIAPI
 UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     EFI_STATUS status;
@@ -1052,7 +761,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* Load the host-specific configuration file. */
     CHAR8 cfg_filename[256];
     UINTN cfg_size;
-    AsciiSPrint(cfg_filename, 256, config_fmt, 
+    AsciiSPrint(cfg_filename, 256, hagfish_config_fmt, 
                 my_ip->v4.Addr[0], my_ip->v4.Addr[1],
                 my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
 
@@ -1255,56 +964,14 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         return EFI_SUCCESS;
     }
 
-    {
-        size_t i;
-        uint64_t total= 0;
-
-        AsciiPrint("%d RAM region(s)\n", region_list->nregions);
-
-        for(i= 0; i < region_list->nregions; i++) {
-            AsciiPrint("%2d %p-%p\n", i,
-                       region_list->regions[i].base,
-                       region_list->regions[i].base +
-                       region_list->regions[i].npages * PAGE_4k);
-            total+= region_list->regions[i].npages * PAGE_4k;
-        }
-
-        AsciiPrint("%lldkB total\n", total / 1024);
-    }
+    /* Print out the discovered RAM regions */
+    print_ram_regions(region_list);
 
     /* Build the direct-mapped page tables for the kernel. */
     struct page_tables *tables= build_page_tables(SystemTable, region_list);
     if(!tables) {
         AsciiPrint("Failed to create initial page table.\n");
         return EFI_SUCCESS;
-    }
-
-    {
-        AsciiPrint("Dumping L0 table at %p\n", tables->L0_table);
-
-        size_t i;
-        for(i= 0; i < 512; i++) {
-            if(tables->L0_table[i].d.valid) {
-                union aarch64_descriptor *L1_table=
-                    (union aarch64_descriptor *)
-                        ((uint64_t)tables->L0_table[i].d.base <<
-                            ARMv8_BASE_PAGE_BITS);
-
-                AsciiPrint("%016llx -> table @%p\n",
-                           i << ARMv8_TOP_TABLE_BITS, L1_table);
-
-                size_t j;
-                for(j= 0; j < 512; j++) {
-                    if(L1_table[j].block_l1.valid) {
-                        AsciiPrint("  %016llx -> %016llx\n",
-                                   (i << ARMv8_TOP_TABLE_BITS) +
-                                       (j << ARMv8_HUGE_PAGE_BITS),
-                                   (uint64_t)L1_table[j].block_l1.base <<
-                                       ARMv8_HUGE_PAGE_BITS);
-                    }
-                }
-            }
-        }
     }
 
     FreePool(region_list);

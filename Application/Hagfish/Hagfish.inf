@@ -9,6 +9,8 @@
     ENTRY_POINT                    = UefiMain
 
 [Sources]
+    Allocation.c
+    Config.c
     Hagfish.c
 
 [Packages]
@@ -25,7 +27,6 @@
     gEfiAcpiTableGuid
     gEfiAcpi10TableGuid
     gEfiAcpi20TableGuid
-    gEfiSmbiosTableGuid
 
 [Protocols]
     gEfiLoadedImageProtocolGuid
