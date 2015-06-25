@@ -23,5 +23,8 @@
 [Includes]
     Include
 
+[Includes.AARCH64]
+    Include/AArch64
+
 [LibraryClasses]
     ELF|Include/ELF/libelf.h

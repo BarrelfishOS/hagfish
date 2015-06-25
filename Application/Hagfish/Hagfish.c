@@ -27,8 +27,7 @@
 /* Package headers */
 #include <libelf.h>
 #include <multiboot2.h>
-
-#include <AArch64/vm.h>
+#include <vm.h>
 
 /* Application headers */
 #include <Allocation.h>
