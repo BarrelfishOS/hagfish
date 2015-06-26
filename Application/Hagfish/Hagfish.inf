@@ -12,6 +12,7 @@
     Allocation.c
     Config.c
     Hagfish.c
+    Memory.c
 
 [Packages]
     Hagfish/Hagfish.dec
