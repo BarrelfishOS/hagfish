@@ -9,25 +9,25 @@
 
 /** The system's base page size is 4kB */
 #define ARMv8_BASE_PAGE_BITS                  12
-#define ARMv8_BASE_PAGE_SIZE                  (1<<ARMv8_BASE_PAGE_BITS)
+#define ARMv8_BASE_PAGE_SIZE                  (1ULL<<ARMv8_BASE_PAGE_BITS)
 #define ARMv8_BASE_PAGE_MASK                  (ARMv8_BASE_PAGE_SIZE - 1)
 #define ARMv8_BASE_PAGE_OFFSET(a)             ((a) & ARMv8_BASE_PAGE_MASK)
 
 /** The system's large page size is 2MB */
 #define ARMv8_LARGE_PAGE_BITS                  21
-#define ARMv8_LARGE_PAGE_SIZE                  (1<<ARMv8_LARGE_PAGE_BITS)
+#define ARMv8_LARGE_PAGE_SIZE                  (1ULL<<ARMv8_LARGE_PAGE_BITS)
 #define ARMv8_LARGE_PAGE_MASK                  (ARMv8_LARGE_PAGE_SIZE - 1)
 #define ARMv8_LARGE_PAGE_OFFSET(a)             ((a) & ARMv8_LARGE_PAGE_MASK)
 
 /** The system's huge page size is 1GB */
 #define ARMv8_HUGE_PAGE_BITS                  30
-#define ARMv8_HUGE_PAGE_SIZE                  (1<<ARMv8_HUGE_PAGE_BITS)
+#define ARMv8_HUGE_PAGE_SIZE                  (1ULL<<ARMv8_HUGE_PAGE_BITS)
 #define ARMv8_HUGE_PAGE_MASK                  (ARMv8_HUGE_PAGE_SIZE - 1)
 #define ARMv8_HUGE_PAGE_OFFSET(a)             ((a) & ARMv8_HUGE_PAGE_MASK)
 
 /** The system's largest table granularity is 512GB */
 #define ARMv8_TOP_TABLE_BITS                  39
-#define ARMv8_TOP_TABLE_SIZE                  (1<<ARMv8_TOP_TABLE_BITS)
+#define ARMv8_TOP_TABLE_SIZE                  (1ULL<<ARMv8_TOP_TABLE_BITS)
 #define ARMv8_TOP_TABLE_MASK                  (ARMv8_TOP_TABLE_SIZE - 1)
 #define ARMv8_TOP_TABLE_OFFSET(a)             ((a) & ARMv8_TOP_TABLE_MASK)
 

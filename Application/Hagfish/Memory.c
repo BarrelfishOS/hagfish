@@ -5,6 +5,81 @@
 #include <Allocation.h>
 #include <Memory.h>
 
+static const char *mmap_types[] = {
+    "reserved",
+    "LD code",
+    "LD data",
+    "BS code",
+    "BS data",
+    "RS code",
+    "RS data",
+    "available",
+    "unusable",
+    "ACPI reclaim",
+    "ACPI NVS",
+    "MMIO",
+    "ports",
+    "PAL code",
+    "persist"
+};
+
+static const char *bf_mmap_types[] = {
+    "BF code",
+    "BF stack",
+    "BF multiboot",
+    "BF module",
+    "BF page table",
+};
+
+void
+print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
+    EFI_STATUS status;
+    EFI_MEMORY_DESCRIPTOR *mmap;
+    UINTN mmap_size, mmap_key, mmap_d_size, mmap_n_desc;
+    UINT32 mmap_d_ver;
+    int i;
+
+    mmap= allocate_pool(MEM_MAP_SIZE, EfiLoaderData);
+    if(!mmap) return;
+
+    mmap_size= MEM_MAP_SIZE;
+    status= SystemTable->BootServices->GetMemoryMap(
+                &mmap_size, mmap, &mmap_key, &mmap_d_size, &mmap_d_ver);
+    if(status != EFI_SUCCESS) {
+        AsciiPrint("GetMemoryMap: %r\n", status);
+        return;
+    }
+    AsciiPrint("Memory map at %p, key: %x, descriptor version: %x\n",
+               mmap, mmap_key, mmap_d_ver);
+    mmap_n_desc= mmap_size / mmap_d_size;
+    AsciiPrint("Got %d memory map entries of %dB (%dB).\n",
+               mmap_n_desc, mmap_d_size, mmap_size);
+
+    AsciiPrint("Type          PStart           PEnd        "
+               "      Size      Attributes\n");
+    for(i= 0; i < mmap_n_desc; i++) {
+        EFI_MEMORY_DESCRIPTOR *desc= 
+            ((void *)mmap) + (mmap_d_size * i);
+        const char *description;
+
+        if(desc->Type < EfiMaxMemoryType)
+            description= mmap_types[desc->Type];
+        else if(EfiBarrelfishFirstMemType <= desc->Type &&
+                desc->Type < EfiBarrelfishMaxMemType)
+            description= bf_mmap_types[desc->Type - EfiBarrelfishFirstMemType];
+        else
+            description= "???";
+
+        AsciiPrint("%-13a %016lx %016lx %9ldkB %01x\n",
+            description,
+            desc->PhysicalStart,
+            desc->PhysicalStart + (desc->NumberOfPages<<12) - 1,
+            (desc->NumberOfPages<<12)/1024, desc->Attribute);
+    }
+
+    FreePool(mmap);
+}
+
 EFI_STATUS
 get_memory_map(EFI_SYSTEM_TABLE *SystemTable,
                UINTN *mmap_size, UINTN *mmap_key,
