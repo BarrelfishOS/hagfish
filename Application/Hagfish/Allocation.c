@@ -1,10 +1,14 @@
+#include <string.h>
+
+/* EDK headers */
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
+/* Application headers */
 #include <Allocation.h>
 
 void *
-allocate_pages(UINTN n, EFI_MEMORY_TYPE type) {
+allocate_pages(size_t n, EFI_MEMORY_TYPE type) {
     EFI_STATUS status;
     EFI_PHYSICAL_ADDRESS memory;
 
@@ -20,7 +24,7 @@ allocate_pages(UINTN n, EFI_MEMORY_TYPE type) {
 }
 
 void *
-allocate_pool(UINTN size, EFI_MEMORY_TYPE type) {
+allocate_pool(size_t size, EFI_MEMORY_TYPE type) {
     EFI_STATUS status;
     void *memory;
 
@@ -36,10 +40,10 @@ allocate_pool(UINTN size, EFI_MEMORY_TYPE type) {
 }
 
 void *
-allocate_zero_pool(UINTN size, EFI_MEMORY_TYPE type) {
+allocate_zero_pool(size_t size, EFI_MEMORY_TYPE type) {
     void *memory= allocate_pool(size, type);
 
-    if(memory) ZeroMem(memory, size);
+    if(memory) memset(memory, 0, size);
 
     return memory;
 }

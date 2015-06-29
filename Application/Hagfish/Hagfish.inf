@@ -18,6 +18,7 @@
     AArch64/PageTables.c
 
 [Packages]
+    StdLib/StdLib.dec
     Hagfish/Hagfish.dec
     MdePkg/MdePkg.dec
     MdeModulePkg/MdeModulePkg.dec
@@ -25,6 +26,7 @@
 [LibraryClasses]
     UefiApplicationEntryPoint
     UefiLib
+    LibC
     ELF
 
 [Guids]

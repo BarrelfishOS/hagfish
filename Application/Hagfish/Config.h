@@ -1,7 +1,7 @@
 #ifndef __HAGFISH_CONFIG_H
 #define __HAGFISH_CONFIG_H
 
-#include <unix.h> /* XXX move to LibC */
+#include <sys/types.h>
 
 #define DEFAULT_STACK_SIZE 16384
 

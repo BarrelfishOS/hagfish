@@ -1,3 +1,6 @@
+#include <assert.h>
+#include <stdlib.h>
+
 /* EDK headers */
 #include <Uefi.h>
 
@@ -39,7 +42,7 @@ print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
     UINT32 mmap_d_ver;
     int i;
 
-    mmap= allocate_pool(MEM_MAP_SIZE, EfiLoaderData);
+    mmap= malloc(MEM_MAP_SIZE);
     if(!mmap) return;
 
     mmap_size= MEM_MAP_SIZE;
@@ -77,7 +80,7 @@ print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
             (desc->NumberOfPages<<12)/1024, desc->Attribute);
     }
 
-    FreePool(mmap);
+    free(mmap);
 }
 
 EFI_STATUS
@@ -108,13 +111,13 @@ struct region_list *
 get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
     UINTN mmap_size, mmap_key, mmap_d_size, mmap_n_desc;
     UINT32 mmap_d_ver;
-    void *mmap;
-    struct region_list *list;
+    void *mmap= NULL;
+    struct region_list *list= NULL;
     EFI_STATUS status;
 
     /* Get the current memory map. */
     mmap_size= MEM_MAP_SIZE;
-    mmap= allocate_pool(mmap_size, EfiLoaderData);
+    mmap= malloc(mmap_size);
     if(!mmap) {
         AsciiPrint("Failed to allocate memory map.\n");
         goto get_region_list_fail;
@@ -130,9 +133,8 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
 
     /* There can be at most as many regions as memory descriptors, as we only
      * merge them. */
-    list= allocate_pool(sizeof(struct region_list) +
-                        mmap_n_desc * sizeof(struct ram_region),
-                        EfiLoaderData);
+    list= malloc(sizeof(struct region_list) +
+                 mmap_n_desc * sizeof(struct ram_region));
     if(!list) {
         AsciiPrint("Failed to allocate region list.\n");
         goto get_region_list_fail;
@@ -154,12 +156,12 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
             j > 0 && list->regions[j-1].base > desc->PhysicalStart;
             j--) {
         }
-        ASSERT(j == 0 || list->regions[j-1].base <= desc->PhysicalStart);
+        assert(j == 0 || list->regions[j-1].base <= desc->PhysicalStart);
         /* Descriptors should not overlap. */
-        ASSERT(j == 0 ||
+        assert(j == 0 ||
                list->regions[j-1].base + list->regions[j-1].npages * PAGE_4k <=
                desc->PhysicalStart);
-        ASSERT(j == list->nregions ||
+        assert(j == list->nregions ||
                desc->PhysicalStart + desc->NumberOfPages * PAGE_4k <=
                list->regions[j].base);
 
@@ -179,8 +181,8 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
             if(merge_right) {
                 size_t k;
 
-                ASSERT(j > 0);
-                ASSERT(j < list->nregions);
+                assert(j > 0);
+                assert(j < list->nregions);
 
                 /* Absorb the new descriptor and the existing region. */
                 list->regions[j-1].npages +=
@@ -192,7 +194,7 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
 
             }
             else {
-                ASSERT(j > 0);
+                assert(j > 0);
 
                 /* Absorb the new descriptor.  The number of regions is
                  * unchanged. */
@@ -204,15 +206,15 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
                 /* Absorb the new descriptor, and update the base address of
                  * the right-hand region.  The number of regions remains
                  * unchanged.  */
-                ASSERT(j < list->nregions);
+                assert(j < list->nregions);
                 list->regions[j].base-= desc->NumberOfPages * PAGE_4k;
-                ASSERT(list->regions[j].base == desc->PhysicalStart);
+                assert(list->regions[j].base == desc->PhysicalStart);
                 list->regions[j].npages+= desc->NumberOfPages;
             }
             else {
                 size_t k;
 
-                ASSERT(list->nregions + 1 <= mmap_n_desc);
+                assert(list->nregions + 1 <= mmap_n_desc);
 
                 /* Make room for a new region. */
                 for(k= list->nregions; k > j; k--)
@@ -226,15 +228,21 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
         }
     }
 
-    FreePool(mmap);
+    free(mmap);
 
     return list;
 
 get_region_list_fail:
-    if(list) FreePool(list);
-    if(mmap) FreePool(mmap);
+    if(list) free(list);
+    if(mmap) free(mmap);
 
     return NULL;
+}
+
+
+void
+free_region_list(struct region_list *list) {
+    free(list);
 }
 
 void

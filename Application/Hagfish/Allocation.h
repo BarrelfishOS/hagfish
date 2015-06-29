@@ -3,7 +3,7 @@
 
 #include <Library/UefiLib.h>
 
-#include <unix.h> /* XXX switch to LibC */
+#include <sys/types.h>
 
 /* We preallocate space for the memory map, to avoid the recursion between
  * checking the memory map size and allocating memory for it.  This will

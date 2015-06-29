@@ -18,6 +18,7 @@ struct region_list {
 };
 
 struct region_list *get_region_list(EFI_SYSTEM_TABLE *SystemTable);
+void free_region_list(struct region_list *list);
 void print_ram_regions(struct region_list *region_list);
 EFI_STATUS get_memory_map(EFI_SYSTEM_TABLE *SystemTable, UINTN *mmap_size,
                           UINTN *mmap_key, UINTN *mmap_d_size,

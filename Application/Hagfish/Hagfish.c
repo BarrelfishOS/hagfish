@@ -1,6 +1,10 @@
 /* @file Hagfish.c
 */
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /* EDK Headers */
 #include <Uefi.h>
 
@@ -41,6 +45,14 @@
 typedef void (*cpu_driver_entry)(uint32_t multiboot_magic,
                                  void *multiboot_info);
 
+/* Copy a base+length string into a null-terminated string.  Destination
+ * buffer must be large enough to hold the terminator i.e. n+1 characters. */
+static inline void
+ntstring(char *dest, const char *src, size_t len) {
+    memcpy(dest, src, len);
+    dest[len]= '\0';
+}
+
 /* Load a component (kernel or module) over TFTP, and fill in the relevant
  * fields in the configuration structure. */
 int
@@ -51,15 +63,14 @@ load_component(struct component_config *cmp, const char *buf,
     ASSERT(cmp);
 
     /* Allocate a null-terminated string. */
-    char *path= (char *)allocate_pool(cmp->path_len + 1, EfiLoaderData);
+    char *path= malloc((cmp->path_len + 1) * sizeof(char));
     if(!path) return 0;
-    CopyMem(path, buf + cmp->path_start, cmp->path_len);
-    path[cmp->path_len]= '\0';
+    ntstring(path, buf + cmp->path_start, cmp->path_len);
 
     /* Get the file size. */
     AsciiPrint("Loading \"%a\"...", path);
     status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
-                       FALSE, &cmp->image_size, NULL, &server_ip,
+                       FALSE, (UINT64 *)&cmp->image_size, NULL, &server_ip,
                        (UINT8 *)path, NULL, TRUE);
     if(status != EFI_SUCCESS) {
         AsciiPrint("\nMtftp: %r, %a\n",
@@ -68,7 +79,7 @@ load_component(struct component_config *cmp, const char *buf,
     }
 
     /* Allocate a page-aligned buffer. */
-    UINTN npages= roundpage(cmp->image_size);
+    size_t npages= roundpage(cmp->image_size);
     cmp->load_address= allocate_pages(npages, EfiBarrelfishELFData);
     if(!cmp->load_address) {
         AsciiPrint("\nFailed to allocate %d pages\n", npages);
@@ -77,26 +88,18 @@ load_component(struct component_config *cmp, const char *buf,
 
     /* Load the image. */
     status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_READ_FILE,
-                       cmp->load_address, FALSE, &cmp->image_size, NULL,
-                       &server_ip, (UINT8 *)path, NULL, FALSE);
+                       cmp->load_address, FALSE, (UINT64 *)&cmp->image_size,
+                       NULL, &server_ip, (UINT8 *)path, NULL, FALSE);
     if(status != EFI_SUCCESS) {
         AsciiPrint("Mtftp: %r, %a\n",
                    status, pxe->Mode->TftpError.ErrorString);
         return EFI_SUCCESS;
     }
 
-    FreePool(path);
+    free(path);
 
     AsciiPrint(" done (%p, %dB)\n", cmp->load_address, cmp->image_size);
     return 1;
-}
-
-/* Copy a base+length string into a null-terminated string.  Destination
- * buffer must be large enough to hold the terminator i.e. n+1 characters. */
-static inline void
-ntstring(char *dest, const char *src, size_t len) {
-    CopyMem(dest, src, len);
-    dest[len]= '\0';
 }
 
 /* Allocate and fill the Multiboot information structure.  The memory map is
@@ -160,7 +163,7 @@ create_multiboot_info(struct hagfish_config *cfg,
         AsciiPrint("allocate_pages: failed\n");
         return NULL;
     }
-    ZeroMem(multiboot, npages * PAGE_4k);
+    memset(multiboot, 0, npages * PAGE_4k);
     AsciiPrint("Allocated %d pages for multiboot info at %p.\n",
                npages, multiboot);
 
@@ -194,8 +197,8 @@ create_multiboot_info(struct hagfish_config *cfg,
         dhcp->type= MULTIBOOT_TAG_TYPE_NETWORK;
         dhcp->size= sizeof(struct multiboot_tag_network)
                   + sizeof(EFI_PXE_BASE_CODE_PACKET);
-        CopyMem(&dhcp->dhcpack, &pxe->Mode->DhcpAck,
-                sizeof(EFI_PXE_BASE_CODE_PACKET));
+        memcpy(&dhcp->dhcpack, &pxe->Mode->DhcpAck,
+               sizeof(EFI_PXE_BASE_CODE_PACKET));
 
         cursor+= sizeof(struct multiboot_tag_network)
                + sizeof(EFI_PXE_BASE_CODE_PACKET);
@@ -208,8 +211,8 @@ create_multiboot_info(struct hagfish_config *cfg,
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_OLD;
         acpi->size= sizeof(struct multiboot_tag_old_acpi)
                   + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
-        CopyMem(&acpi->rsdp, acpi1_header,
-                sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
+        memcpy(&acpi->rsdp, acpi1_header,
+               sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= sizeof(struct multiboot_tag_old_acpi)
                + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
@@ -222,8 +225,8 @@ create_multiboot_info(struct hagfish_config *cfg,
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_NEW;
         acpi->size= sizeof(struct multiboot_tag_new_acpi)
                   + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
-        CopyMem(&acpi->rsdp, acpi2_header,
-                sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
+        memcpy(&acpi->rsdp, acpi2_header,
+               sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= sizeof(struct multiboot_tag_old_acpi)
                + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
@@ -363,9 +366,9 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* Load the host-specific configuration file. */
     CHAR8 cfg_filename[256];
     UINTN cfg_size;
-    AsciiSPrint(cfg_filename, 256, hagfish_config_fmt, 
-                my_ip->v4.Addr[0], my_ip->v4.Addr[1],
-                my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
+    snprintf(cfg_filename, 256, hagfish_config_fmt, 
+             my_ip->v4.Addr[0], my_ip->v4.Addr[1],
+             my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
 
     /* Get the file size. */
     AsciiPrint("Loading \"%a\"\n", cfg_filename);
@@ -379,7 +382,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     }
     AsciiPrint("File \"%a\" has size %dB\n", cfg_filename, cfg_size);
 
-    void *cfg_buffer= allocate_pool(cfg_size, EfiLoaderData);
+    void *cfg_buffer= malloc(cfg_size);
     if(!cfg_buffer) {
         AsciiPrint("allocate_pool: failed\n");
         return EFI_SUCCESS;
@@ -492,7 +495,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         if(phdr[i].p_type == PT_LOAD) AsciiPrint(" LOAD");
         AsciiPrint("\n");
 
-        UINTN p_pages= (phdr[i].p_memsz + (4096-1)) / 4096;
+        UINTN p_pages= COVER(phdr[i].p_memsz, PAGE_4k);
         void *p_buf;
 
         p_buf= allocate_pages(p_pages, EfiBarrelfishCPUDriver);
@@ -500,11 +503,11 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
             AsciiPrint("allocate_pages: %r\n", status);
             return EFI_SUCCESS;
         }
-        ZeroMem(p_buf, p_pages * 4096);
+        memset(p_buf, 0, p_pages * PAGE_4k);
         AsciiPrint("Loading into %d pages at %p\n", p_pages, p_buf);
 
-        CopyMem(p_buf, cfg->kernel->load_address + phdr[i].p_offset,
-                phdr[i].p_filesz);
+        memcpy(p_buf, cfg->kernel->load_address + phdr[i].p_offset,
+               phdr[i].p_filesz);
 
         if(ehdr->e_entry <= phdr[i].p_vaddr &&
            ehdr->e_entry - phdr[i].p_vaddr < phdr[i].p_memsz) {
@@ -514,8 +517,8 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     }
 
     /* Allocate a stack */
-    void *kernel_stack=
-        allocate_pages(cfg->stack_size / PAGE_4k, EfiBarrelfishCPUDriverStack);
+    void *kernel_stack= allocate_pages(COVER(cfg->stack_size,PAGE_4k),
+                                       EfiBarrelfishCPUDriverStack);
     if(!kernel_stack) {
         AsciiPrint("Failed allocate kernel stack\n");
         return EFI_SUCCESS;
@@ -539,7 +542,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
     /* Finished with the configuration (we just copied the last strings out of
      * it, in create_multiboot_info). */
-    FreePool(cfg_buffer);
+    free(cfg_buffer);
 
     /* Finished with PXE. */
     status= SystemTable->BootServices->CloseProtocol(
@@ -576,8 +579,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         return EFI_SUCCESS;
     }
 
-    FreePool(region_list);
-
+    free_region_list(region_list);
     free_page_table_bookkeeping(tables);
 
     print_memory_map(SystemTable);

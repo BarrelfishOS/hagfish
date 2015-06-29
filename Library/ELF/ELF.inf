@@ -71,12 +71,14 @@
 [Packages]
     MdePkg/MdePkg.dec
     Hagfish/Hagfish.dec
+    StdLib/StdLib.dec
 
 [LibraryClasses]
     BaseLib
     BaseMemoryLib
     MemoryAllocationLib
     DebugLib
+    LibC
 
 [BuildOptions]
     GCC:*_*_AARCH64_CC_FLAGS = $(COMMON_CFLAGS) -D LIBELF_ARCH=EM_AARCH64 -D LIBELF_BYTEORDER=ELFDATA2LSB -D LIBELF_CLASS=ELFCLASS64

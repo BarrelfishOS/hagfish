@@ -1,5 +1,9 @@
 /*** Hagfish configuration file loading and parsing. ***/
 
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
+
 /* EDK headers */
 #include <Library/BaseLib.h>
 #include <Library/UefiLib.h>
@@ -32,8 +36,8 @@ istoken(char c) {
 
 static size_t
 skip_whitespace(const char *buf, size_t size, size_t start, int skip_newlines) {
-    ASSERT(0);
-    ASSERT(start < size);
+    assert(0);
+    assert(start < size);
     size_t i;
 
     for(i= start;
@@ -41,9 +45,9 @@ skip_whitespace(const char *buf, size_t size, size_t start, int skip_newlines) {
                      (skip_newlines && isnewline(buf[i])));
         i++);
 
-    ASSERT(start <= i);
-    ASSERT(i <= size);
-    ASSERT(i == size ||
+    assert(start <= i);
+    assert(i <= size);
+    assert(i == size ||
            !iswhitespace(buf[i]) ||
            (!skip_newlines && isnewline(buf[i])));
     return i;
@@ -51,20 +55,20 @@ skip_whitespace(const char *buf, size_t size, size_t start, int skip_newlines) {
 
 static size_t
 find_eol(const char *buf, size_t size, size_t start) {
-    ASSERT(start < size);
+    assert(start < size);
     size_t i;
 
     for(i= start; i < size && buf[i] != '\n'; i++);
 
-    ASSERT(start <= i);
-    ASSERT(i <= size);
-    ASSERT(i == size || buf[i] == '\n');
+    assert(start <= i);
+    assert(i <= size);
+    assert(i == size || buf[i] == '\n');
     return i;
 }
 
 static size_t
 find_token(const char *buf, size_t size, size_t start, int skip_newlines) {
-    ASSERT(start < size);
+    assert(start < size);
     size_t i= start;
 
     while(i < size && !istoken(buf[i])) {
@@ -80,30 +84,30 @@ find_token(const char *buf, size_t size, size_t start, int skip_newlines) {
         }
     }
 
-    ASSERT(start <= i);
-    ASSERT(i <= size);
-    ASSERT(i == size || istoken(buf[i]));
+    assert(start <= i);
+    assert(i <= size);
+    assert(i == size || istoken(buf[i]));
     return i;
 }
 
 static size_t
 get_token(const char *buf, size_t size, size_t start) {
-    ASSERT(start < size);
-    ASSERT(istoken(buf[start]));
+    assert(start < size);
+    assert(istoken(buf[start]));
     size_t i;
 
     for(i= start; i < size && istoken(buf[i]); i++);
 
-    ASSERT(start < i);
-    ASSERT(i <= size);
-    ASSERT(istoken(buf[i-1]));
+    assert(start < i);
+    assert(i <= size);
+    assert(istoken(buf[i-1]));
     return i;
 }
 
 static int
 get_cmdline(const char *buf, size_t size, size_t *cursor,
             size_t *cstart, size_t *clen, size_t *astart, size_t *alen) {
-    ASSERT(*cursor < size);
+    assert(*cursor < size);
     *cursor= find_token(buf, size, *cursor, 0);
     if(!istoken(buf[*cursor])) {
         AsciiPrint("Missing command line\n");
@@ -112,10 +116,10 @@ get_cmdline(const char *buf, size_t size, size_t *cursor,
     *astart= *cstart= *cursor; /* Path starts here. */
     *cursor= get_token(buf, size, *cursor);
     *clen= *cursor - *cstart; /* Path ends here. */
-    ASSERT(*clen <= size - *cursor);
+    assert(*clen <= size - *cursor);
     *cursor= find_eol(buf, size, *cursor);
     *alen= *cursor - *astart;
-    ASSERT(*alen <= size - *cursor); /* Arguments end here. */
+    assert(*alen <= size - *cursor); /* Arguments end here. */
 
     return 1;
 }
@@ -125,8 +129,7 @@ parse_config(const char *buf, size_t size) {
     size_t cursor= 0;
     struct hagfish_config *cfg;
 
-    cfg= (struct hagfish_config *)allocate_zero_pool(
-            sizeof(struct hagfish_config), EfiLoaderData);
+    cfg= calloc(1, sizeof(struct hagfish_config));
     if(!cfg) goto parse_fail;
     cfg->buf= buf;
     cfg->stack_size= DEFAULT_STACK_SIZE;
@@ -136,14 +139,14 @@ parse_config(const char *buf, size_t size) {
         if(cursor < size) {
             size_t tstart= cursor, tlen;
 
-            ASSERT(istoken(buf[cursor]));
+            assert(istoken(buf[cursor]));
             cursor= get_token(buf, size, cursor);
             tlen= cursor - tstart;
-            ASSERT(tlen <= size - cursor);
+            assert(tlen <= size - cursor);
 
             if(!AsciiStrnCmp("title", buf+tstart, 5)) {
                 /* Ignore the title. */
-                ASSERT(cursor < size);
+                assert(cursor < size);
                 cursor= find_eol(buf, size, cursor);
             }
             if(!AsciiStrnCmp("stack", buf+tstart, 6)) {
@@ -159,14 +162,14 @@ parse_config(const char *buf, size_t size) {
 
                 cursor= get_token(buf, size, cursor);
                 alen= cursor - astart;
-                ASSERT(alen <= size - cursor);
+                assert(alen <= size - cursor);
 
                 if(alen > 9) {
                     AsciiPrint("Stack size too large\n");
                     goto parse_fail;
                 }
 
-                CopyMem(arg, buf+astart, alen);
+                memcpy(arg, buf+astart, alen);
                 arg[alen]= '\0';
                 cfg->stack_size= AsciiStrDecimalToUintn(arg);
             }
@@ -176,9 +179,7 @@ parse_config(const char *buf, size_t size) {
                     goto parse_fail;
                 }
 
-                cfg->kernel= (struct component_config *)
-                    allocate_zero_pool(sizeof(struct component_config),
-                                       EfiLoaderData);
+                cfg->kernel= calloc(1, sizeof(struct component_config));
                 if(!cfg->kernel) goto parse_fail;
 
                 /* Grab the command line. */
@@ -190,9 +191,8 @@ parse_config(const char *buf, size_t size) {
                     goto parse_fail;
             }
             else if(!AsciiStrnCmp("module", buf+tstart, 6)) {
-                struct component_config *module=(struct component_config *)
-                    allocate_zero_pool(sizeof(struct component_config),
-                                       EfiLoaderData);
+                struct component_config *module=
+                    calloc(1, sizeof(struct component_config));
 
                 /* Grab the command line. */
                 if(!get_cmdline(buf, size, &cursor,
@@ -203,12 +203,12 @@ parse_config(const char *buf, size_t size) {
                     goto parse_fail;
 
                 if(cfg->first_module) {
-                    ASSERT(cfg->last_module);
+                    assert(cfg->last_module);
                     cfg->last_module->next= module;
                     cfg->last_module= module;
                 }
                 else {
-                    ASSERT(!cfg->last_module);
+                    assert(!cfg->last_module);
                     cfg->first_module= module;
                     cfg->last_module= module;
                 }

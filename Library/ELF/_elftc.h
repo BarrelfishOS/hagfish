@@ -483,4 +483,8 @@ extern const char *__progname;
 
 #endif	/* __OpenBSD__ */
 
+#ifndef roundup2
+    #define roundup2 roundup
+#endif
+
 #endif	/* _ELFTC_H */

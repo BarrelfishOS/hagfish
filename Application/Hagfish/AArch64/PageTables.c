@@ -1,12 +1,19 @@
-#include <Uefi.h>
-#include <Library/UefiLib.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
+/* EDK headers */
+#include <Library/MemoryAllocationLib.h>
+#include <Library/UefiLib.h>
+#include <Uefi.h>
+
+/* Package headers */
+#include <vm.h>
+
+/* Application headers */
 #include <Allocation.h>
 #include <PageTables.h>
 #include <Util.h>
-
-#include <stdint.h>
-#include <vm.h>
 
 struct page_tables {
     size_t nL1;
@@ -25,8 +32,7 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
         goto build_page_tables_fail;
     }
 
-    struct page_tables *tables=
-        allocate_zero_pool(sizeof(struct page_tables), EfiLoaderData);
+    struct page_tables *tables= calloc(1, sizeof(struct page_tables));
     if(!tables) goto build_page_tables_fail;
 
     uint64_t first_address, last_address;
@@ -50,7 +56,7 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
         AsciiPrint("Failed to allocate L0 page table.\n");
         goto build_page_tables_fail;
     }
-    ZeroMem(tables->L0_table, PAGE_4k);
+    memset(tables->L0_table, 0, PAGE_4k);
 
     /* Count the number of L1 tables (512GB) blocks required to cover the
      * physical mapping window. */
@@ -66,9 +72,7 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
     AsciiPrint("Allocating %d L1 tables\n", tables->nL1);
 
     /* ALlocate the L1 table pointers. */
-    tables->L1_tables=
-        allocate_zero_pool(tables->nL1 * sizeof(union aarch64_descriptor *),
-                           EfiLoaderData);
+    tables->L1_tables= calloc(tables->nL1, sizeof(union aarch64_descriptor *));
     if(!tables->L1_tables) {
         AsciiPrint("Failed to allocate L1 page table pointers.\n");
         goto build_page_tables_fail;
@@ -83,7 +87,7 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
             goto build_page_tables_fail;
         }
         AsciiPrint("  %p\n", tables->L1_tables[i]);
-        ZeroMem(tables->L1_tables[i], PAGE_4k);
+        memset(tables->L1_tables[i], 0, PAGE_4k);
 
         /* Map the L1 into the L0. */
         size_t L0_index= (L1base >> ARMv8_TOP_TABLE_BITS) + i;
@@ -129,10 +133,10 @@ build_page_tables_fail:
             for(i= 0; i < tables->nL1; i++) {
                 if(tables->L1_tables[i]) FreePages(tables->L1_tables[i], 1);
             }
-            FreePool(tables->L1_tables);
+            free(tables->L1_tables);
         }
         if(tables->L0_table) FreePages(tables->L0_table, 1);
-        FreePool(tables);
+        free(tables);
     }
 
     return NULL;
