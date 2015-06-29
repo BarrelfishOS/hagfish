@@ -24,6 +24,7 @@
     MdeModulePkg/MdeModulePkg.dec
 
 [LibraryClasses]
+    DebugPrintErrorLevelLib
     UefiApplicationEntryPoint
     UefiLib
     LibC

@@ -1,7 +1,10 @@
-#include <assert.h>
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* EDK headers */
+#include <Library/DebugLib.h>
 #include <Uefi.h>
 
 /* Application headers */
@@ -43,13 +46,17 @@ print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
     int i;
 
     mmap= malloc(MEM_MAP_SIZE);
-    if(!mmap) return;
+    if(!mmap) {
+        DebugPrint(DEBUG_ERROR, "malloc: %a\n", strerror(errno));
+        return;
+    }
 
     mmap_size= MEM_MAP_SIZE;
     status= SystemTable->BootServices->GetMemoryMap(
                 &mmap_size, mmap, &mmap_key, &mmap_d_size, &mmap_d_ver);
     if(status != EFI_SUCCESS) {
-        AsciiPrint("GetMemoryMap: %r\n", status);
+        free(mmap);
+        DebugPrint(DEBUG_ERROR, "GetMemoryMap: %r\n", status);
         return;
     }
     AsciiPrint("Memory map at %p, key: %x, descriptor version: %x\n",
@@ -93,14 +100,16 @@ get_memory_map(EFI_SYSTEM_TABLE *SystemTable,
     status= SystemTable->BootServices->GetMemoryMap(
                 mmap_size, mmap, mmap_key, mmap_d_size, mmap_d_ver);
     if(status == EFI_BUFFER_TOO_SMALL) {
-        AsciiPrint("The memory map is %dB, but MEM_MAP_SIZE is %d.\n",
+        DebugPrint(DEBUG_ERROR,
+                   "The memory map is %dB, but MEM_MAP_SIZE is %d.\n",
                    mmap_size, MEM_MAP_SIZE);
-        AsciiPrint("This is compile-time limit in Hagfish - please report "
+        DebugPrint(DEBUG_ERROR,
+                   "This is compile-time limit in Hagfish - please report "
                    "this overflow, it's a bug.\n");
         return status;
     }
     else if(status != EFI_SUCCESS) {
-        AsciiPrint("GetMemoryMap: %r\n", status);
+        DebugPrint(DEBUG_ERROR, "GetMemoryMap: %r\n", status);
         return status;
     }
 
@@ -119,14 +128,14 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
     mmap_size= MEM_MAP_SIZE;
     mmap= malloc(mmap_size);
     if(!mmap) {
-        AsciiPrint("Failed to allocate memory map.\n");
+        DebugPrint(DEBUG_ERROR, "malloc: %a\n", strerror(errno));
         goto get_region_list_fail;
     }
     status= get_memory_map(SystemTable,
                            &mmap_size, &mmap_key,
                            &mmap_d_size, &mmap_d_ver, mmap);
     if(status != EFI_SUCCESS) {
-        AsciiPrint("Failed to get memory map.\n");
+        DebugPrint(DEBUG_ERROR, "Failed to get memory map.\n");
         goto get_region_list_fail;
     }
     mmap_n_desc= mmap_size / mmap_d_size;
@@ -136,7 +145,7 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
     list= malloc(sizeof(struct region_list) +
                  mmap_n_desc * sizeof(struct ram_region));
     if(!list) {
-        AsciiPrint("Failed to allocate region list.\n");
+        DebugPrint(DEBUG_ERROR, "malloc: %a\n", strerror(errno));
         goto get_region_list_fail;
     }
     list->nregions= 0;
@@ -156,12 +165,12 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
             j > 0 && list->regions[j-1].base > desc->PhysicalStart;
             j--) {
         }
-        assert(j == 0 || list->regions[j-1].base <= desc->PhysicalStart);
+        ASSERT(j == 0 || list->regions[j-1].base <= desc->PhysicalStart);
         /* Descriptors should not overlap. */
-        assert(j == 0 ||
+        ASSERT(j == 0 ||
                list->regions[j-1].base + list->regions[j-1].npages * PAGE_4k <=
                desc->PhysicalStart);
-        assert(j == list->nregions ||
+        ASSERT(j == list->nregions ||
                desc->PhysicalStart + desc->NumberOfPages * PAGE_4k <=
                list->regions[j].base);
 
@@ -181,8 +190,8 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
             if(merge_right) {
                 size_t k;
 
-                assert(j > 0);
-                assert(j < list->nregions);
+                ASSERT(j > 0);
+                ASSERT(j < list->nregions);
 
                 /* Absorb the new descriptor and the existing region. */
                 list->regions[j-1].npages +=
@@ -194,7 +203,7 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
 
             }
             else {
-                assert(j > 0);
+                ASSERT(j > 0);
 
                 /* Absorb the new descriptor.  The number of regions is
                  * unchanged. */
@@ -206,15 +215,15 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
                 /* Absorb the new descriptor, and update the base address of
                  * the right-hand region.  The number of regions remains
                  * unchanged.  */
-                assert(j < list->nregions);
+                ASSERT(j < list->nregions);
                 list->regions[j].base-= desc->NumberOfPages * PAGE_4k;
-                assert(list->regions[j].base == desc->PhysicalStart);
+                ASSERT(list->regions[j].base == desc->PhysicalStart);
                 list->regions[j].npages+= desc->NumberOfPages;
             }
             else {
                 size_t k;
 
-                assert(list->nregions + 1 <= mmap_n_desc);
+                ASSERT(list->nregions + 1 <= mmap_n_desc);
 
                 /* Make room for a new region. */
                 for(k= list->nregions; k > j; k--)

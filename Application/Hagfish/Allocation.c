@@ -1,6 +1,7 @@
 #include <string.h>
 
 /* EDK headers */
+#include <Library/DebugLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
@@ -16,7 +17,7 @@ allocate_pages(size_t n, EFI_MEMORY_TYPE type) {
 
     status = gBS->AllocatePages(AllocateAnyPages, type, n, &memory);
     if(EFI_ERROR(status)) {
-        AsciiPrint("AllocatePages: %r\n", status);
+        DebugPrint(DEBUG_ERROR, "AllocatePages: %r\n", status);
         return NULL;
     }
 
@@ -32,7 +33,7 @@ allocate_pool(size_t size, EFI_MEMORY_TYPE type) {
 
     status = gBS->AllocatePool(type, size, &memory);
     if(EFI_ERROR(status)) {
-        AsciiPrint("AllocatePages: %r\n", status);
+        DebugPrint(DEBUG_ERROR, "AllocatePages: %r\n", status);
         return NULL;
     }
 

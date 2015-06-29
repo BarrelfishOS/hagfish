@@ -1,11 +1,12 @@
 /*** Hagfish configuration file loading and parsing. ***/
 
-#include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* EDK headers */
 #include <Library/BaseLib.h>
+#include <Library/DebugLib.h>
 #include <Library/UefiLib.h>
 
 /* Application headers */
@@ -36,8 +37,7 @@ istoken(char c) {
 
 static size_t
 skip_whitespace(const char *buf, size_t size, size_t start, int skip_newlines) {
-    assert(0);
-    assert(start < size);
+    ASSERT(start < size);
     size_t i;
 
     for(i= start;
@@ -45,9 +45,9 @@ skip_whitespace(const char *buf, size_t size, size_t start, int skip_newlines) {
                      (skip_newlines && isnewline(buf[i])));
         i++);
 
-    assert(start <= i);
-    assert(i <= size);
-    assert(i == size ||
+    ASSERT(start <= i);
+    ASSERT(i <= size);
+    ASSERT(i == size ||
            !iswhitespace(buf[i]) ||
            (!skip_newlines && isnewline(buf[i])));
     return i;
@@ -55,20 +55,20 @@ skip_whitespace(const char *buf, size_t size, size_t start, int skip_newlines) {
 
 static size_t
 find_eol(const char *buf, size_t size, size_t start) {
-    assert(start < size);
+    ASSERT(start < size);
     size_t i;
 
     for(i= start; i < size && buf[i] != '\n'; i++);
 
-    assert(start <= i);
-    assert(i <= size);
-    assert(i == size || buf[i] == '\n');
+    ASSERT(start <= i);
+    ASSERT(i <= size);
+    ASSERT(i == size || buf[i] == '\n');
     return i;
 }
 
 static size_t
 find_token(const char *buf, size_t size, size_t start, int skip_newlines) {
-    assert(start < size);
+    ASSERT(start < size);
     size_t i= start;
 
     while(i < size && !istoken(buf[i])) {
@@ -84,42 +84,42 @@ find_token(const char *buf, size_t size, size_t start, int skip_newlines) {
         }
     }
 
-    assert(start <= i);
-    assert(i <= size);
-    assert(i == size || istoken(buf[i]));
+    ASSERT(start <= i);
+    ASSERT(i <= size);
+    ASSERT(i == size || istoken(buf[i]));
     return i;
 }
 
 static size_t
 get_token(const char *buf, size_t size, size_t start) {
-    assert(start < size);
-    assert(istoken(buf[start]));
+    ASSERT(start < size);
+    ASSERT(istoken(buf[start]));
     size_t i;
 
     for(i= start; i < size && istoken(buf[i]); i++);
 
-    assert(start < i);
-    assert(i <= size);
-    assert(istoken(buf[i-1]));
+    ASSERT(start < i);
+    ASSERT(i <= size);
+    ASSERT(istoken(buf[i-1]));
     return i;
 }
 
 static int
 get_cmdline(const char *buf, size_t size, size_t *cursor,
             size_t *cstart, size_t *clen, size_t *astart, size_t *alen) {
-    assert(*cursor < size);
+    ASSERT(*cursor < size);
     *cursor= find_token(buf, size, *cursor, 0);
     if(!istoken(buf[*cursor])) {
-        AsciiPrint("Missing command line\n");
+        DebugPrint(DEBUG_ERROR, "Missing command line\n");
         return 0;
     }
     *astart= *cstart= *cursor; /* Path starts here. */
     *cursor= get_token(buf, size, *cursor);
     *clen= *cursor - *cstart; /* Path ends here. */
-    assert(*clen <= size - *cursor);
+    ASSERT(*clen <= size - *cursor);
     *cursor= find_eol(buf, size, *cursor);
     *alen= *cursor - *astart;
-    assert(*alen <= size - *cursor); /* Arguments end here. */
+    ASSERT(*alen <= size - *cursor); /* Arguments end here. */
 
     return 1;
 }
@@ -130,7 +130,10 @@ parse_config(const char *buf, size_t size) {
     struct hagfish_config *cfg;
 
     cfg= calloc(1, sizeof(struct hagfish_config));
-    if(!cfg) goto parse_fail;
+    if(!cfg) {
+        DebugPrint(DEBUG_ERROR, "calloc: %a\n", strerror(errno));
+        goto parse_fail;
+    }
     cfg->buf= buf;
     cfg->stack_size= DEFAULT_STACK_SIZE;
 
@@ -139,48 +142,51 @@ parse_config(const char *buf, size_t size) {
         if(cursor < size) {
             size_t tstart= cursor, tlen;
 
-            assert(istoken(buf[cursor]));
+            ASSERT(istoken(buf[cursor]));
             cursor= get_token(buf, size, cursor);
             tlen= cursor - tstart;
-            assert(tlen <= size - cursor);
+            ASSERT(tlen <= size - cursor);
 
-            if(!AsciiStrnCmp("title", buf+tstart, 5)) {
+            if(!strncmp("title", buf+tstart, 5)) {
                 /* Ignore the title. */
-                assert(cursor < size);
+                ASSERT(cursor < size);
                 cursor= find_eol(buf, size, cursor);
             }
-            if(!AsciiStrnCmp("stack", buf+tstart, 6)) {
+            if(!strncmp("stack", buf+tstart, 6)) {
                 char arg[10];
                 size_t astart, alen;
 
                 cursor= skip_whitespace(buf, size, cursor, FALSE);
                 if(!istoken(buf[cursor])) {
-                    AsciiPrint("Missing stack size\n");
+                    DebugPrint(DEBUG_ERROR, "Expected stack size\n");
                     goto parse_fail;
                 }
                 astart= cursor;
 
                 cursor= get_token(buf, size, cursor);
                 alen= cursor - astart;
-                assert(alen <= size - cursor);
+                ASSERT(alen <= size - cursor);
 
                 if(alen > 9) {
-                    AsciiPrint("Stack size too large\n");
+                    DebugPrint(DEBUG_ERROR, "Stack size field too long\n");
                     goto parse_fail;
                 }
 
                 memcpy(arg, buf+astart, alen);
                 arg[alen]= '\0';
-                cfg->stack_size= AsciiStrDecimalToUintn(arg);
+                cfg->stack_size= strtoul(arg, NULL, 10);
             }
-            if(!AsciiStrnCmp("kernel", buf+tstart, 6)) {
+            if(!strncmp("kernel", buf+tstart, 6)) {
                 if(cfg->kernel) {
-                    AsciiPrint("Kernel defined twice\n");
+                    DebugPrint(DEBUG_ERROR, "Kernel defined twice\n");
                     goto parse_fail;
                 }
 
                 cfg->kernel= calloc(1, sizeof(struct component_config));
-                if(!cfg->kernel) goto parse_fail;
+                if(!cfg->kernel) {
+                    DebugPrint(DEBUG_ERROR, "calloc: %a\n", strerror(errno));
+                    goto parse_fail;
+                }
 
                 /* Grab the command line. */
                 if(!get_cmdline(buf, size, &cursor,
@@ -190,9 +196,13 @@ parse_config(const char *buf, size_t size) {
                                 &cfg->kernel->args_len))
                     goto parse_fail;
             }
-            else if(!AsciiStrnCmp("module", buf+tstart, 6)) {
+            else if(!strncmp("module", buf+tstart, 6)) {
                 struct component_config *module=
                     calloc(1, sizeof(struct component_config));
+                if(!module) {
+                    DebugPrint(DEBUG_ERROR, "calloc, %a\n", strerror(errno));
+                    goto parse_fail;
+                }
 
                 /* Grab the command line. */
                 if(!get_cmdline(buf, size, &cursor,
@@ -203,26 +213,27 @@ parse_config(const char *buf, size_t size) {
                     goto parse_fail;
 
                 if(cfg->first_module) {
-                    assert(cfg->last_module);
+                    ASSERT(cfg->last_module);
                     cfg->last_module->next= module;
                     cfg->last_module= module;
                 }
                 else {
-                    assert(!cfg->last_module);
+                    ASSERT(!cfg->last_module);
                     cfg->first_module= module;
                     cfg->last_module= module;
                 }
             }
             else {
-                AsciiPrint("Unrecognised entry \"%.*a\", skipping line.\n",
-                        tlen, buf + tstart);
+                DebugPrint(DEBUG_ERROR,
+                           "Unrecognised entry \"%.*a\", skipping line.\n",
+                           tlen, buf + tstart);
                 cursor= find_eol(buf, size, cursor);
             }
         }
     }
 
     if(!cfg->kernel) {
-        AsciiPrint("No kernel image specified\n");
+        DebugPrint(DEBUG_ERROR, "No kernel image specified\n");
         goto parse_fail;
     }
 

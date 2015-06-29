@@ -1,8 +1,10 @@
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* EDK headers */
+#include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiLib.h>
 #include <Uefi.h>
@@ -28,19 +30,23 @@ struct page_tables *
 build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
                   struct region_list *list) {
     if(list->nregions == 0) {
-        AsciiPrint("No memory regions defined.\n");
+        DebugPrint(DEBUG_ERROR, "No memory regions defined.\n");
         goto build_page_tables_fail;
     }
 
     struct page_tables *tables= calloc(1, sizeof(struct page_tables));
-    if(!tables) goto build_page_tables_fail;
+    if(!tables) {
+        DebugPrint(DEBUG_ERROR, "calloc: %a\n", strerror(errno));
+        goto build_page_tables_fail;
+    }
 
     uint64_t first_address, last_address;
     first_address= list->regions[0].base;
     last_address= list->regions[list->nregions-1].base
                 + list->regions[list->nregions-1].npages * PAGE_4k - 1;
 
-    AsciiPrint("Window from %llx to %llx\n", first_address, last_address);
+    DebugPrint(DEBUG_INFO, "RAM window from %llx to %llx\n",
+               first_address, last_address);
 
     /* We will map in aligned 16G blocks, as each requires only one TLB
      * entry. */
@@ -48,12 +54,12 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
     window_start= first_address & ~BLOCK_16G;
     window_length= ROUNDUP(last_address - window_start, BLOCK_16G);
 
-    AsciiPrint("Mapping from %llx to %llx\n", window_start,
-            window_start + window_length - 1);
+    DebugPrint(DEBUG_INFO, "Mapping 16GB blocks from %llx to %llx\n",
+               window_start, window_start + window_length - 1);
 
     tables->L0_table= allocate_pages(1, EfiBarrelfishBootPageTable);
     if(!tables->L0_table) {
-        AsciiPrint("Failed to allocate L0 page table.\n");
+        DebugPrint(DEBUG_ERROR, "Failed to allocate L0 page table.\n");
         goto build_page_tables_fail;
     }
     memset(tables->L0_table, 0, PAGE_4k);
@@ -69,12 +75,13 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
         tables->nL1++;
     }
 
-    AsciiPrint("Allocating %d L1 tables\n", tables->nL1);
+    DebugPrint(DEBUG_INFO, "Allocating %d L1 tables\n", tables->nL1);
 
     /* ALlocate the L1 table pointers. */
     tables->L1_tables= calloc(tables->nL1, sizeof(union aarch64_descriptor *));
     if(!tables->L1_tables) {
-        AsciiPrint("Failed to allocate L1 page table pointers.\n");
+        DebugPrint(DEBUG_ERROR,
+                   "Failed to allocate L1 page table pointers.\n");
         goto build_page_tables_fail;
     }
 
@@ -83,10 +90,9 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
     for(i= 0; i < tables->nL1; i++) {
         tables->L1_tables[i]= allocate_pages(1, EfiBarrelfishBootPageTable);
         if(!tables->L1_tables[i]) {
-            AsciiPrint("Failed to allocate L1 page tables.\n");
+            DebugPrint(DEBUG_ERROR, "Failed to allocate L1 page tables.\n");
             goto build_page_tables_fail;
         }
-        AsciiPrint("  %p\n", tables->L1_tables[i]);
         memset(tables->L1_tables[i], 0, PAGE_4k);
 
         /* Map the L1 into the L0. */
@@ -104,9 +110,6 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
     for(block= firstblock; block < firstblock + nblocks; block++) {
         size_t table_number= block >> ARMv8_BLOCK_BITS;
         size_t table_index= block & ARMv8_BLOCK_MASK;
-
-        AsciiPrint("%d %d %d %016llx\n", block, table_number, table_index,
-                                         block * ARMv8_HUGE_PAGE_SIZE);
 
         /* We're mapping 16GB contiguous blocks, to save TLB entries. */
         tables->L1_tables[table_number][table_index].block_l1.contiguous= 1;
@@ -144,7 +147,7 @@ build_page_tables_fail:
 
 void
 free_page_table_bookkeeping(struct page_tables *tables) {
-    FreePool(tables->L1_tables);
-    FreePool(tables);
+    free(tables->L1_tables);
+    free(tables);
 }
 
