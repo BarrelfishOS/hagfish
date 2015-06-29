@@ -152,7 +152,7 @@ parse_config(const char *buf, size_t size) {
                 ASSERT(cursor < size);
                 cursor= find_eol(buf, size, cursor);
             }
-            if(!strncmp("stack", buf+tstart, 6)) {
+            else if(!strncmp("stack", buf+tstart, 5)) {
                 char arg[10];
                 size_t astart, alen;
 
@@ -176,7 +176,7 @@ parse_config(const char *buf, size_t size) {
                 arg[alen]= '\0';
                 cfg->stack_size= strtoul(arg, NULL, 10);
             }
-            if(!strncmp("kernel", buf+tstart, 6)) {
+            else if(!strncmp("kernel", buf+tstart, 6)) {
                 if(cfg->kernel) {
                     DebugPrint(DEBUG_ERROR, "Kernel defined twice\n");
                     goto parse_fail;
