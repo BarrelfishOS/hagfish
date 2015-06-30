@@ -125,7 +125,7 @@ get_cmdline(const char *buf, size_t size, size_t *cursor,
 }
 
 struct hagfish_config *
-parse_config(const char *buf, size_t size) {
+parse_config(char *buf, size_t size) {
     size_t cursor= 0;
     struct hagfish_config *cfg;
 
@@ -253,4 +253,31 @@ parse_fail:
         free(cfg);
     }
     return NULL;
+}
+
+/* Free all heap-allocated bookkeeping, none of which will be passed to
+ * Barrelfish.  Note that this leaves everything allocated explicitly into
+ * frames untouched. */
+void
+free_bookkeeping(struct hagfish_config *cfg) {
+    ASSERT(cfg);
+
+    /* The configuration file itself. */
+    if(cfg->buf) free(cfg->buf);
+
+    /* The memory region list. */
+    if(cfg->ram_regions) free_region_list(cfg->ram_regions);
+
+    /* Root page table metadata.  The page tables themselves are untouched. */
+    if(cfg->tables) free_page_table_bookkeeping(cfg->tables);
+
+    /* The kernel. */
+    if(cfg->kernel) free(cfg->kernel);
+    if(cfg->kernel_segments) free_region_list(cfg->kernel_segments);
+
+    /* All non-kernel components. */
+    struct component_config *cmp;
+    for(cmp= cfg->first_module; cmp; cmp= cmp->next) free(cmp);
+
+    free(cfg);
 }

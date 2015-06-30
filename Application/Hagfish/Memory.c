@@ -5,11 +5,19 @@
 
 /* EDK headers */
 #include <Library/DebugLib.h>
+#include <Library/UefiBootServicesTableLib.h>
 #include <Uefi.h>
 
 /* Application headers */
 #include <Allocation.h>
+#include <Config.h>
 #include <Memory.h>
+
+/* The current UEFI memory map.  This is statically allocated, as it needs to
+ * persist after we've cleaned up all of our heap allocations. */
+char mmap[MEM_MAP_SIZE];
+UINTN mmap_size, mmap_key, mmap_d_size;
+UINT32 mmap_d_ver;
 
 static const char *mmap_types[] = {
     "reserved",
@@ -38,27 +46,17 @@ static const char *bf_mmap_types[] = {
 };
 
 void
-print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
+print_memory_map(void) {
     EFI_STATUS status;
-    EFI_MEMORY_DESCRIPTOR *mmap;
-    UINTN mmap_size, mmap_key, mmap_d_size, mmap_n_desc;
-    UINT32 mmap_d_ver;
-    int i;
+    size_t mmap_n_desc, i;
 
-    mmap= malloc(MEM_MAP_SIZE);
-    if(!mmap) {
-        DebugPrint(DEBUG_ERROR, "malloc: %a\n", strerror(errno));
+    status= update_memory_map();
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Couldn't get the current memory map: %r\n",
+                   status);
         return;
     }
 
-    mmap_size= MEM_MAP_SIZE;
-    status= SystemTable->BootServices->GetMemoryMap(
-                &mmap_size, mmap, &mmap_key, &mmap_d_size, &mmap_d_ver);
-    if(status != EFI_SUCCESS) {
-        free(mmap);
-        DebugPrint(DEBUG_ERROR, "GetMemoryMap: %r\n", status);
-        return;
-    }
     AsciiPrint("Memory map at %p, key: %x, descriptor version: %x\n",
                mmap, mmap_key, mmap_d_ver);
     mmap_n_desc= mmap_size / mmap_d_size;
@@ -86,19 +84,18 @@ print_memory_map(EFI_SYSTEM_TABLE *SystemTable) {
             desc->PhysicalStart + (desc->NumberOfPages<<12) - 1,
             (desc->NumberOfPages<<12)/1024, desc->Attribute);
     }
-
-    free(mmap);
 }
 
 EFI_STATUS
-get_memory_map(EFI_SYSTEM_TABLE *SystemTable,
-               UINTN *mmap_size, UINTN *mmap_key,
-               UINTN *mmap_d_size, UINT32 *mmap_d_ver,
-               void *mmap) {
+update_memory_map(void) {
     EFI_STATUS status;
 
-    status= SystemTable->BootServices->GetMemoryMap(
-                mmap_size, mmap, mmap_key, mmap_d_size, mmap_d_ver);
+    /* Grab the current table from UEFI. */
+    mmap_size= MEM_MAP_SIZE;
+    status= gST->BootServices->GetMemoryMap(
+                &mmap_size, (void *)&mmap,
+                &mmap_key,  &mmap_d_size,
+                &mmap_d_ver);
     if(status == EFI_BUFFER_TOO_SMALL) {
         DebugPrint(DEBUG_ERROR,
                    "The memory map is %dB, but MEM_MAP_SIZE is %d.\n",
@@ -108,7 +105,7 @@ get_memory_map(EFI_SYSTEM_TABLE *SystemTable,
                    "this overflow, it's a bug.\n");
         return status;
     }
-    else if(status != EFI_SUCCESS) {
+    else if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "GetMemoryMap: %r\n", status);
         return status;
     }
@@ -116,27 +113,32 @@ get_memory_map(EFI_SYSTEM_TABLE *SystemTable,
     return EFI_SUCCESS;
 }
 
+EFI_STATUS
+update_ram_regions(struct hagfish_config *cfg) {
+    ASSERT(cfg);
+
+    /* Only create the list once - we assume that the RAM regions never
+     * change. */
+    if(!cfg->ram_regions) {
+        cfg->ram_regions= get_region_list(cfg);
+        if(!cfg->ram_regions) return EFI_OUT_OF_RESOURCES;
+    }
+
+    return EFI_SUCCESS;
+}
+
 struct region_list *
-get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
-    UINTN mmap_size, mmap_key, mmap_d_size, mmap_n_desc;
-    UINT32 mmap_d_ver;
-    void *mmap= NULL;
+get_region_list(struct hagfish_config *cfg) {
+    size_t mmap_n_desc, i;
     struct region_list *list= NULL;
     EFI_STATUS status;
 
     /* Get the current memory map. */
-    mmap_size= MEM_MAP_SIZE;
-    mmap= malloc(mmap_size);
-    if(!mmap) {
-        DebugPrint(DEBUG_ERROR, "malloc: %a\n", strerror(errno));
-        goto get_region_list_fail;
-    }
-    status= get_memory_map(SystemTable,
-                           &mmap_size, &mmap_key,
-                           &mmap_d_size, &mmap_d_ver, mmap);
-    if(status != EFI_SUCCESS) {
-        DebugPrint(DEBUG_ERROR, "Failed to get memory map.\n");
-        goto get_region_list_fail;
+    status= update_memory_map();
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Couldn't get the current memory map: %r\n",
+                   status);
+        return NULL;
     }
     mmap_n_desc= mmap_size / mmap_d_size;
 
@@ -150,10 +152,10 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
     }
     list->nregions= 0;
 
-    size_t i;
     for(i= 0; i < mmap_n_desc; i++) {
         /* { regions are non-overlapping and sorted by base address. } */
-        EFI_MEMORY_DESCRIPTOR *desc= mmap + i * mmap_d_size;
+        EFI_MEMORY_DESCRIPTOR *desc=
+            (EFI_MEMORY_DESCRIPTOR *)(mmap + i * mmap_d_size);
 
         /* We're only looking for RAM. */
         if(desc->Type == EfiMemoryMappedIO ||
@@ -237,13 +239,10 @@ get_region_list(EFI_SYSTEM_TABLE *SystemTable) {
         }
     }
 
-    free(mmap);
-
     return list;
 
 get_region_list_fail:
     if(list) free(list);
-    if(mmap) free(mmap);
 
     return NULL;
 }

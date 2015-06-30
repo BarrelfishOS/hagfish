@@ -59,7 +59,7 @@ ntstring(char *dest, const char *src, size_t len) {
  * fields in the configuration structure. */
 int
 load_component(struct component_config *cmp, const char *buf,
-               EFI_PXE_BASE_CODE_PROTOCOL *pxe, EFI_IP_ADDRESS server_ip) {
+               EFI_PXE_BASE_CODE_PROTOCOL *pxe, EFI_IP_ADDRESS *server_ip) {
     EFI_STATUS status;
 
     ASSERT(cmp);
@@ -75,7 +75,7 @@ load_component(struct component_config *cmp, const char *buf,
     /* Get the file size. */
     DebugPrint(DEBUG_LOADFILE, "Loading \"%a\"...", path);
     status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
-                       FALSE, (UINT64 *)&cmp->image_size, NULL, &server_ip,
+                       FALSE, (UINT64 *)&cmp->image_size, NULL, server_ip,
                        (UINT8 *)path, NULL, TRUE);
     if(status != EFI_SUCCESS) {
         DebugPrint(DEBUG_ERROR, "\nMtftp: %r, %a\n",
@@ -85,8 +85,8 @@ load_component(struct component_config *cmp, const char *buf,
 
     /* Allocate a page-aligned buffer. */
     size_t npages= roundpage(cmp->image_size);
-    cmp->load_address= allocate_pages(npages, EfiBarrelfishELFData);
-    if(!cmp->load_address) {
+    cmp->image_address= allocate_pages(npages, EfiBarrelfishELFData);
+    if(!cmp->image_address) {
         DebugPrint(DEBUG_ERROR,
                    "\nFailed to allocate %d pages\n", npages);
         return 0;
@@ -94,8 +94,8 @@ load_component(struct component_config *cmp, const char *buf,
 
     /* Load the image. */
     status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_READ_FILE,
-                       cmp->load_address, FALSE, (UINT64 *)&cmp->image_size,
-                       NULL, &server_ip, (UINT8 *)path, NULL, FALSE);
+                       cmp->image_address, FALSE, (UINT64 *)&cmp->image_size,
+                       NULL, server_ip, (UINT8 *)path, NULL, FALSE);
     if(status != EFI_SUCCESS) {
         DebugPrint(DEBUG_ERROR,
                    "\nMtftp: %r, %a\n",
@@ -106,24 +106,18 @@ load_component(struct component_config *cmp, const char *buf,
     free(path);
 
     DebugPrint(DEBUG_LOADFILE,
-               " done (%p, %dB)\n", cmp->load_address, cmp->image_size);
+               " done (%p, %dB)\n", cmp->image_address, cmp->image_size);
     return 1;
 }
 
 /* Allocate and fill the Multiboot information structure.  The memory map is
  * preallocated, but left empty until all allocations are finished. */
 void *
-create_multiboot_info(
-        struct hagfish_config *cfg,
-        EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi1_header,
-        EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi2_header,
-        EFI_PXE_BASE_CODE_PROTOCOL *pxe,
-        Elf *kernel_elf, size_t n_scn,
-        struct multiboot_tag_efi_mmap **mmap_tag,
-        EFI_MEMORY_DESCRIPTOR **mmap_start) {
+create_multiboot_info(struct hagfish_config *cfg,
+                      EFI_PXE_BASE_CODE_PROTOCOL *pxe) {
     UINTN size, npages;
     struct component_config *cmp;
-    void *multiboot, *cursor;
+    void *cursor;
 
     /* Calculate the boot information size. */
     /* Fixed header - there's no struct for this in multiboot.h */
@@ -135,12 +129,12 @@ create_multiboot_info(
     size+= sizeof(struct multiboot_tag_network)
          + sizeof(EFI_PXE_BASE_CODE_PACKET);
     /* ACPI 1.0 header */
-    if(acpi1_header) {
+    if(cfg->acpi1_header) {
         size+= sizeof(struct multiboot_tag_old_acpi)
              + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
     /* ACPI 2.0+ header */
-    if(acpi2_header) {
+    if(cfg->acpi2_header) {
         size+= sizeof(struct multiboot_tag_new_acpi)
              + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
@@ -165,17 +159,17 @@ create_multiboot_info(
 
     /* Round up to a page size and allocate. */
     npages= roundpage(size);
-    multiboot= allocate_pages(npages, EfiBarrelfishMultibootData);
-    if(!multiboot) {
+    cfg->multiboot= allocate_pages(npages, EfiBarrelfishMultibootData);
+    if(!cfg->multiboot) {
         DebugPrint(DEBUG_ERROR, "allocate_pages: failed\n");
         return NULL;
     }
-    memset(multiboot, 0, npages * PAGE_4k);
+    memset(cfg->multiboot, 0, npages * PAGE_4k);
     DebugPrint(DEBUG_INFO,
                "Allocated %d pages for %dB multiboot info at %p.\n",
-               npages, size, multiboot);
+               npages, size, cfg->multiboot);
 
-    cursor= multiboot;
+    cursor= cfg->multiboot;
     /* Write the fixed header. */
     *((uint32_t *)cursor)= size; /* total_size */
     cursor+= sizeof(uint32_t);
@@ -212,28 +206,28 @@ create_multiboot_info(
                + sizeof(EFI_PXE_BASE_CODE_PACKET);
     }
     /* Add the ACPI 1.0 header */
-    if(acpi1_header) {
+    if(cfg->acpi1_header) {
         struct multiboot_tag_old_acpi *acpi=
             (struct multiboot_tag_old_acpi *)cursor;
 
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_OLD;
         acpi->size= sizeof(struct multiboot_tag_old_acpi)
                   + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
-        memcpy(&acpi->rsdp, acpi1_header,
+        memcpy(&acpi->rsdp, cfg->acpi1_header,
                sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= sizeof(struct multiboot_tag_old_acpi)
                + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
     /* Add the ACPI 2.0+ header */
-    if(acpi2_header) {
+    if(cfg->acpi2_header) {
         struct multiboot_tag_new_acpi *acpi=
             (struct multiboot_tag_new_acpi *)cursor;
 
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_NEW;
         acpi->size= sizeof(struct multiboot_tag_new_acpi)
                   + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
-        memcpy(&acpi->rsdp, acpi2_header,
+        memcpy(&acpi->rsdp, cfg->acpi2_header,
                sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= sizeof(struct multiboot_tag_old_acpi)
@@ -249,9 +243,9 @@ create_multiboot_info(
         kernel->size= sizeof(struct multiboot_tag_module_64)
                     + cfg->kernel->args_len+1;
         kernel->mod_start=
-            (multiboot_uint64_t)cfg->kernel->load_address;
+            (multiboot_uint64_t)cfg->kernel->image_address;
         kernel->mod_end=
-            (multiboot_uint64_t)(cfg->kernel->load_address +
+            (multiboot_uint64_t)(cfg->kernel->image_address +
                                  (cfg->kernel->image_size - 1));
         ntstring(kernel->cmdline,
                  cfg->buf + cfg->kernel->args_start,
@@ -269,9 +263,9 @@ create_multiboot_info(
         module->size= sizeof(struct multiboot_tag_module_64)
                     + cmp->args_len+1;
         module->mod_start=
-            (multiboot_uint64_t)cmp->load_address;
+            (multiboot_uint64_t)cmp->image_address;
         module->mod_end=
-            (multiboot_uint64_t)(cmp->load_address +
+            (multiboot_uint64_t)(cmp->image_address +
                                  (cmp->image_size - 1));
         ntstring(module->cmdline, cfg->buf + cmp->args_start, cmp->args_len);
 
@@ -280,174 +274,24 @@ create_multiboot_info(
     }
     /* Record the position of the memory map, to be filled in after we've
      * finished doing allocations. */
-    *mmap_tag= (struct multiboot_tag_efi_mmap *)cursor;
+    cfg->mmap_tag= (struct multiboot_tag_efi_mmap *)cursor;
     cursor+= sizeof(struct multiboot_tag_efi_mmap);
-    *mmap_start= (EFI_MEMORY_DESCRIPTOR *)cursor;
+    cfg->mmap_start= cursor;
 
-    return multiboot;
+    return cfg->multiboot;
 }
 
-EFI_STATUS EFIAPI
-UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
+EFI_STATUS
+prepare_kernel(struct hagfish_config *cfg) {
     EFI_STATUS status;
-    EFI_LOADED_IMAGE_PROTOCOL *hag_image;
-    EFI_PXE_BASE_CODE_PROTOCOL *pxe;
-    EFI_IP_ADDRESS server_ip, *my_ip;
-    EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi2_header= NULL;
-    EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER *acpi1_header= NULL;
-    int i;
+    size_t i;
 
-    AsciiPrint("Hagfish UEFI loader starting\n");
-
-    DebugPrint(DEBUG_INFO, "UEFI vendor: %s\n", gST->FirmwareVendor);
-
-    /* Get the details of our own process image. */
-    status= gST->BootServices->OpenProtocol(
-                gImageHandle, &gEfiLoadedImageProtocolGuid,
-                (void **)&hag_image, gImageHandle, NULL,
-                EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
-    if(status != EFI_SUCCESS) {
-        DebugPrint(DEBUG_ERROR, "OpenProtocol: %r\n", status);
-        return EFI_SUCCESS;
-    }
-
-    DebugPrint(DEBUG_INFO, "Hagfish loaded at %p, size %dB, by handle %p\n",
-        hag_image->ImageBase, hag_image->ImageSize, hag_image->DeviceHandle);
-
-    /* Search for the ACPI tables. */
-    DebugPrint(DEBUG_INFO, "Found %d EFI configuration tables\n",
-               gST->NumberOfTableEntries);
-    for(i= 0; i < gST->NumberOfTableEntries; i++) {
-        EFI_CONFIGURATION_TABLE *entry= &gST->ConfigurationTable[i];
-
-        if(CompareGuid(&entry->VendorGuid, &gEfiAcpi20TableGuid)) {
-            acpi2_header= entry->VendorTable;
-            DebugPrint(DEBUG_INFO,
-                       "ACPI 2.0 table at %p, signature \"% 8.8a\"\n",
-                       acpi2_header, (const char *)&acpi2_header->Signature);
-        }
-        else if(CompareGuid(&entry->VendorGuid, &gEfiAcpi10TableGuid)) {
-            acpi1_header= entry->VendorTable;
-            DebugPrint(DEBUG_INFO,
-                       "ACPI 1.0 table at %p, signature \"% 8.8a\"\n",
-                       acpi1_header, (const char *)&acpi1_header->Signature);
-        }
-    }
-
-    /* Find the PXE service that loaded us. */
-    DebugPrint(DEBUG_INFO,
-               "Connecting to the PXE service that loaded me.\n");
-    status= gST->BootServices->OpenProtocol(
-                hag_image->DeviceHandle, &gEfiPxeBaseCodeProtocolGuid,
-                (void **)&pxe, gImageHandle, NULL,
-                EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
-    if(status != EFI_SUCCESS) {
-        AsciiPrint("OpenProtocol: %r\n", status);
-        return EFI_SUCCESS;
-    }
-
-    DebugPrint(DEBUG_INFO, "PXE loader at %p, revision %x, %a\n",
-               (UINT64)pxe,
-               pxe->Revision,
-               pxe->Mode->Started ? "running" : "stopped");
-
-    if(!pxe->Mode->DhcpAckReceived) {
-        DebugPrint(DEBUG_ERROR, "DHCP hasn't completed.\n");
-        return EFI_SUCCESS;
-    }
-
-    if(pxe->Mode->UsingIpv6) {
-        DebugPrint(DEBUG_ERROR, "PXE using IPv6, I can't handle that.\n");
-        return EFI_SUCCESS;
-    }
-
-    /* Grab the network details. */
-    my_ip= &pxe->Mode->StationIp;
-    DebugPrint(DEBUG_NET,
-               "My IP address is %d.%d.%d.%d\n",
-               my_ip->v4.Addr[0], my_ip->v4.Addr[1],
-               my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
-
-    for(i= 0; i < 4; i++)
-        server_ip.v4.Addr[i]= pxe->Mode->DhcpAck.Dhcpv4.BootpSiAddr[i];
-    DebugPrint(DEBUG_NET,
-               "BOOTP server's IP address is %d.%d.%d.%d\n",
-               server_ip.v4.Addr[0], server_ip.v4.Addr[1],
-               server_ip.v4.Addr[2], server_ip.v4.Addr[3]);
-
-    /* Load the host-specific configuration file. */
-    CHAR8 cfg_filename[256];
-    UINTN cfg_size;
-    snprintf(cfg_filename, 256, hagfish_config_fmt, 
-             my_ip->v4.Addr[0], my_ip->v4.Addr[1],
-             my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
-
-    /* Get the file size. */
-    DebugPrint(DEBUG_LOADFILE, "Loading \"%a\"\n", cfg_filename);
-    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
-                       FALSE, &cfg_size, NULL, &server_ip, (UINT8 *)cfg_filename,
-                       NULL, TRUE);
-    if(status != EFI_SUCCESS) {
-        DebugPrint(DEBUG_ERROR,
-                   "Mtftp: %r, %a\n",
-                   status, pxe->Mode->TftpError.ErrorString);
-        return EFI_SUCCESS;
-    }
-    DebugPrint(DEBUG_LOADFILE, "File \"%a\" has size %dB\n",
-               cfg_filename, cfg_size);
-
-    void *cfg_buffer= malloc(cfg_size);
-    if(!cfg_buffer) {
-        DebugPrint(DEBUG_ERROR, "malloc: %a\n", strerror(errno));
-        return EFI_SUCCESS;
-    }
-
-    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_READ_FILE, cfg_buffer,
-                       FALSE, &cfg_size, NULL, &server_ip,
-                       (UINT8 *)cfg_filename, NULL, FALSE);
-    if(status != EFI_SUCCESS) {
-        DebugPrint(DEBUG_ERROR, "Mtftp: %r, %a\n",
-                   status, pxe->Mode->TftpError.ErrorString);
-        return EFI_SUCCESS;
-    }
-    DebugPrint(DEBUG_LOADFILE, "Loaded config at [%p-%p]\n",
-               cfg_buffer, cfg_buffer + cfg_size - 1);
-
-    DebugPrint(DEBUG_INFO, "Parsing configuration...");
-    /* Parse the configuration file. */
-    struct hagfish_config *cfg= parse_config(cfg_buffer, cfg_size);
-    if(!cfg) {
-        DebugPrint(DEBUG_ERROR, "Failed to parse Hagfish configuration.\n");
-        return EFI_SUCCESS;
-    }
-    DebugPrint(DEBUG_INFO, " done\n");
-
-
-    DebugPrint(DEBUG_INFO, "Loading kernel...");
-    /* Load the kernel. */
-    if(!load_component(cfg->kernel, cfg_buffer, pxe, server_ip)) {
-        DebugPrint(DEBUG_ERROR, "Failed to load the kernel.\n");
-    }
-    DebugPrint(DEBUG_INFO, " done\n");
-
-    DebugPrint(DEBUG_INFO, "Loading modules...");
-    /* Load modules */
-    struct component_config *cmp;
-    for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
-        if(!load_component(cmp, cfg_buffer, pxe, server_ip)) {
-            DebugPrint(DEBUG_ERROR, "Failed to load module.\n");
-        }
-    }
-    DebugPrint(DEBUG_INFO, " done\n");
-
-    /* Relocate the kernel image to a fresh page, and initialise the data
-     * section. */
     elf_version(EV_CURRENT);
-    Elf *img_elf= elf_memory(cfg->kernel->load_address,
+    Elf *img_elf= elf_memory(cfg->kernel->image_address,
                              cfg->kernel->image_size);
     if(!img_elf) {
         DebugPrint(DEBUG_ERROR, "elf_memory: %a\n", elf_errmsg(elf_errno()));
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
 
     size_t n_scn;
@@ -455,19 +299,19 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     if(status) {
         DebugPrint(DEBUG_ERROR, "elf_getshdrnum: %a\n",
                    elf_errmsg(elf_errno()));
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
 
     const char *e_ident= elf_getident(img_elf, NULL);
     if(!e_ident) {
         DebugPrint(DEBUG_ERROR, "elf_getident: %a\n",
                    elf_errmsg(elf_errno()));
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
 
     if(e_ident[EI_CLASS] != ELFCLASS64 || e_ident[EI_DATA] != ELFDATA2LSB) {
         DebugPrint(DEBUG_ERROR, "Error: Not a 64-bit little-endian ELF\n");
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
 
     if(e_ident[EI_OSABI] != ELFOSABI_STANDALONE &&
@@ -481,7 +325,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     if(!ehdr) {
         DebugPrint(DEBUG_ERROR, "elf64_getehdr: %a\n",
                    elf_errmsg(elf_errno()));
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
 
     if(ehdr->e_type != ET_EXEC) {
@@ -492,7 +336,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
     if(ehdr->e_machine != EM_AARCH64) {
         DebugPrint(DEBUG_ERROR, "Error: Not AArch64\n");
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
 
     DebugPrint(DEBUG_INFO, "Unrelocated kernel entry point is %x\n",
@@ -503,7 +347,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     if(status) {
         DebugPrint(DEBUG_ERROR, "elf64_getehdr: %a\n",
                    elf_errmsg(elf_errno()));
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
     DebugPrint(DEBUG_LOADFILE, "Found %d program header(s)\n", phnum);
 
@@ -511,18 +355,33 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     if(!phdr) {
         DebugPrint(DEBUG_ERROR, "elf64_getphdr: %a\n",
                    elf_errmsg(elf_errno()));
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
+
+    /* Count the loadable segments, to allocate the region list. */
+    size_t nloadsegs= 0;
+    for(i= 0; i < phnum; i++) {
+        if(phdr[i].p_type == PT_LOAD) nloadsegs++;
+    }
+
+    cfg->kernel_segments= malloc(sizeof(struct region_list) +
+                                 nloadsegs * sizeof(struct ram_region));
+    if(!cfg->kernel_segments) {
+        DebugPrint(DEBUG_ERROR, "malloc: %s\n", strerror(errno));
+        return EFI_OUT_OF_RESOURCES;
+    }
+    cfg->kernel_segments->nregions= 0;
 
     /* Load the CPU driver from its ELF image. */
     int found_entry_point= 0;
-    cpu_driver_entry enter_cpu_driver= (cpu_driver_entry)0;
+    void *entry_point;
     for(i= 0; i < phnum; i++) {
         DebugPrint(DEBUG_LOADFILE,
                    "Segment %d load address %p, file size %x, memory size %x",
                    i, phdr[i].p_vaddr, phdr[i].p_filesz, phdr[i].p_memsz);
         if(phdr[i].p_type == PT_LOAD) DebugPrint(DEBUG_LOADFILE, " LOAD");
         DebugPrint(DEBUG_LOADFILE, "\n");
+        if(phdr[i].p_type != PT_LOAD) continue;
 
         UINTN p_pages= COVER(phdr[i].p_memsz, PAGE_4k);
         void *p_buf;
@@ -530,18 +389,22 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         p_buf= allocate_pages(p_pages, EfiBarrelfishCPUDriver);
         if(!p_buf) {
             DebugPrint(DEBUG_ERROR, "allocate_pages: %r\n", status);
-            return EFI_SUCCESS;
+            return EFI_OUT_OF_RESOURCES;
         }
         memset(p_buf, 0, p_pages * PAGE_4k);
         DebugPrint(DEBUG_LOADFILE, "Loading into %d pages at %p\n",
                    p_pages, p_buf);
 
-        memcpy(p_buf, cfg->kernel->load_address + phdr[i].p_offset,
+        cfg->kernel_segments->regions[i].base= (uint64_t)p_buf;
+        cfg->kernel_segments->regions[i].npages= p_pages;
+        cfg->kernel_segments->nregions++;
+
+        memcpy(p_buf, cfg->kernel->image_address + phdr[i].p_offset,
                phdr[i].p_filesz);
 
         if(ehdr->e_entry <= phdr[i].p_vaddr &&
            ehdr->e_entry - phdr[i].p_vaddr < phdr[i].p_memsz) {
-            enter_cpu_driver=
+            entry_point=
                 (cpu_driver_entry)(p_buf + (ehdr->e_entry - phdr[i].p_vaddr));
             found_entry_point= 1;
         }
@@ -550,108 +413,334 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     if(!found_entry_point) {
         DebugPrint(DEBUG_ERROR,
                    "Kernel entry point wasn't in any loaded segment.\n");
-        return EFI_SUCCESS;
+        return EFI_LOAD_ERROR;
     }
+    cfg->kernel_entry= entry_point;
 
     /* Allocate a stack */
-    void *kernel_stack= allocate_pages(COVER(cfg->stack_size,PAGE_4k),
-                                       EfiBarrelfishCPUDriverStack);
-    if(!kernel_stack) {
+    cfg->kernel_stack= allocate_pages(COVER(cfg->stack_size, PAGE_4k),
+                                      EfiBarrelfishCPUDriverStack);
+    if(!cfg->kernel_stack) {
         DebugPrint(DEBUG_ERROR, "Failed allocate kernel stack\n");
-        return EFI_SUCCESS;
+        return EFI_OUT_OF_RESOURCES;
     }
 
     DebugPrint(DEBUG_LOADFILE,
                "Relocated entry point is %p, stack at %p\n",
-               enter_cpu_driver, kernel_stack);
-
-    /* Create multiboot info header. */
-    EFI_MEMORY_DESCRIPTOR *mmap;
-    struct multiboot_tag_efi_mmap *mmap_tag;
-    void *multiboot=
-        create_multiboot_info(cfg, acpi1_header, acpi2_header, pxe, img_elf,
-                              n_scn, &mmap_tag, &mmap);
-    if(!multiboot) {
-        DebugPrint(DEBUG_ERROR, "Failed to create multiboot header\n");
-        return EFI_SUCCESS;
-    }
+               cfg->kernel_entry, cfg->kernel_stack);
 
     /* Finished with the kernel ELF. */
     elf_end(img_elf);
 
-    /* Finished with the configuration (we just copied the last strings out of
-     * it, in create_multiboot_info). */
-    free(cfg_buffer);
+    return EFI_SUCCESS;
+}
 
-    /* Finished with PXE. */
-    status= gST->BootServices->CloseProtocol(
-                hag_image->DeviceHandle, &gEfiPxeBaseCodeProtocolGuid,
-                gImageHandle, NULL);
-    if(status != EFI_SUCCESS) {
-        DebugPrint(DEBUG_ERROR, "CloseProtocol: %r\n", status);
-        return EFI_SUCCESS;
+void
+acpi_search(struct hagfish_config *cfg) {
+    DebugPrint(DEBUG_INFO, "Found %d EFI configuration tables\n",
+               gST->NumberOfTableEntries);
+
+    size_t i;
+    for(i= 0; i < gST->NumberOfTableEntries; i++) {
+        EFI_CONFIGURATION_TABLE *entry= &gST->ConfigurationTable[i];
+
+        if(CompareGuid(&entry->VendorGuid, &gEfiAcpi20TableGuid)) {
+            cfg->acpi2_header= entry->VendorTable;
+            DebugPrint(DEBUG_INFO,
+                       "ACPI 2.0 table at %p, signature \"% 8.8a\"\n",
+                       cfg->acpi2_header,
+                       (const char *)&cfg->acpi2_header->Signature);
+        }
+        else if(CompareGuid(&entry->VendorGuid, &gEfiAcpi10TableGuid)) {
+            cfg->acpi1_header= entry->VendorTable;
+            DebugPrint(DEBUG_INFO,
+                       "ACPI 1.0 table at %p, signature \"% 8.8a\"\n",
+                       cfg->acpi1_header,
+                       (const char *)&cfg->acpi1_header->Signature);
+        }
+    }
+}
+
+EFI_LOADED_IMAGE_PROTOCOL *
+my_image(void) {
+    EFI_LOADED_IMAGE_PROTOCOL *hag_image;
+    EFI_STATUS status;
+
+    /* Connect to the loaded image protocol. */
+    status= gST->BootServices->OpenProtocol(
+                gImageHandle, &gEfiLoadedImageProtocolGuid,
+                (void **)&hag_image, gImageHandle, NULL,
+                EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "OpenProtocol: %r\n", status);
+        return NULL;
     }
 
-    /* Finished with our own image. */
+    return hag_image;
+}
+
+EFI_STATUS
+image_done(void) {
+    EFI_STATUS status;
+
     status= gST->BootServices->CloseProtocol(
                 gImageHandle, &gEfiLoadedImageProtocolGuid,
                 gImageHandle, NULL);
-    if(status != EFI_SUCCESS) {
+    if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "CloseProtocol: %r\n", status);
+        return status;
+    }
+
+    return EFI_SUCCESS;
+}
+
+EFI_PXE_BASE_CODE_PROTOCOL *
+pxe_loader(EFI_LOADED_IMAGE_PROTOCOL *image) {
+    EFI_PXE_BASE_CODE_PROTOCOL *pxe;
+    EFI_STATUS status;
+
+    status= gST->BootServices->OpenProtocol(
+                image->DeviceHandle, &gEfiPxeBaseCodeProtocolGuid,
+                (void **)&pxe, gImageHandle, NULL,
+                EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+
+    if(EFI_ERROR(status)) {
+        AsciiPrint("OpenProtocol: %r\n", status);
+        return NULL;
+    }
+
+    return pxe;
+}
+
+EFI_STATUS
+pxe_done(EFI_LOADED_IMAGE_PROTOCOL *image) {
+    EFI_STATUS status;
+
+    status= gST->BootServices->CloseProtocol(
+                image->DeviceHandle, &gEfiPxeBaseCodeProtocolGuid,
+                gImageHandle, NULL);
+
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "CloseProtocol: %r\n", status);
+        return status;
+    }
+
+    return EFI_SUCCESS;
+}
+
+/* Check that the PXE client is in a usable state, with networking configured,
+ * and find both our and the server's IP addresses. */
+EFI_STATUS
+net_config(EFI_PXE_BASE_CODE_PROTOCOL *pxe,
+           EFI_IP_ADDRESS *my_ip,
+           EFI_IP_ADDRESS *server_ip) {
+    DebugPrint(DEBUG_INFO, "PXE loader at %p, revision %x, %a\n",
+               (UINT64)pxe,
+               pxe->Revision,
+               pxe->Mode->Started ? "running" : "stopped");
+
+    if(!pxe->Mode->DhcpAckReceived) {
+        DebugPrint(DEBUG_ERROR, "DHCP hasn't completed.\n");
+        return EFI_NOT_READY;
+    }
+
+    if(pxe->Mode->UsingIpv6) {
+        DebugPrint(DEBUG_ERROR, "PXE using IPv6, I can't handle that.\n");
+        return EFI_LOAD_ERROR;
+    }
+
+    /* Grab the network details. */
+    memcpy(my_ip, &pxe->Mode->StationIp, sizeof(EFI_IPv4_ADDRESS));
+    DebugPrint(DEBUG_NET,
+               "My IP address is %d.%d.%d.%d\n",
+               my_ip->v4.Addr[0], my_ip->v4.Addr[1],
+               my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
+
+    /* The octets in the DHCP packet are byte-aligned, but those in an
+     * EFI_IP_ADDRESS are word-aligned, so we've got to copy by hand. */
+    size_t i;
+    for(i= 0; i < 4; i++)
+        server_ip->v4.Addr[i]= pxe->Mode->DhcpAck.Dhcpv4.BootpSiAddr[i];
+    DebugPrint(DEBUG_NET,
+               "BOOTP server's IP address is %d.%d.%d.%d\n",
+               server_ip->v4.Addr[0], server_ip->v4.Addr[1],
+               server_ip->v4.Addr[2], server_ip->v4.Addr[3]);
+
+    return EFI_SUCCESS;
+}
+
+struct hagfish_config *
+load_config(EFI_PXE_BASE_CODE_PROTOCOL *pxe,
+            EFI_IP_ADDRESS *my_ip,
+            EFI_IP_ADDRESS *server_ip) {
+    EFI_STATUS status;
+
+    /* Load the host-specific configuration file. */
+    char cfg_filename[256];
+    UINTN cfg_size;
+    snprintf(cfg_filename, 256, hagfish_config_fmt, 
+             my_ip->v4.Addr[0], my_ip->v4.Addr[1],
+             my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
+
+    DebugPrint(DEBUG_LOADFILE, "Loading \"%a\"\n", cfg_filename);
+
+    /* Get the file size.  Note that even though this call doesn't touch the
+     * supplied buffer (argument 3), it still fails if it's null.  Thus the
+     * nonsense parameter. */
+    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
+                       FALSE, &cfg_size, NULL, server_ip,
+                       (UINT8 *)cfg_filename, NULL, TRUE);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Mtftp: %r, %a\n",
+                   status, pxe->Mode->TftpError.ErrorString);
+        return NULL;
+    }
+    DebugPrint(DEBUG_LOADFILE, "File \"%a\" has size %dB\n",
+               cfg_filename, cfg_size);
+
+    void *cfg_buffer= malloc(cfg_size);
+    if(!cfg_buffer) {
+        DebugPrint(DEBUG_ERROR, "malloc: %a\n", strerror(errno));
+        return NULL;
+    }
+
+    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_READ_FILE, cfg_buffer,
+                       FALSE, &cfg_size, NULL, server_ip,
+                       (UINT8 *)cfg_filename, NULL, FALSE);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Mtftp: %r, %a\n",
+                   status, pxe->Mode->TftpError.ErrorString);
+        return NULL;
+    }
+    DebugPrint(DEBUG_LOADFILE, "Loaded config at [%p-%p]\n",
+               cfg_buffer, cfg_buffer + cfg_size - 1);
+
+    DebugPrint(DEBUG_INFO, "Parsing configuration...");
+    /* Parse the configuration file. */
+    struct hagfish_config *cfg= parse_config(cfg_buffer, cfg_size);
+    if(!cfg) {
+        DebugPrint(DEBUG_ERROR, "Failed to parse Hagfish configuration.\n");
+        return NULL;
+    }
+    DebugPrint(DEBUG_INFO, " done\n");
+
+    return cfg;
+}
+
+EFI_STATUS
+UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
+    EFI_STATUS status;
+    EFI_LOADED_IMAGE_PROTOCOL *hag_image;
+    EFI_PXE_BASE_CODE_PROTOCOL *pxe;
+    EFI_IP_ADDRESS server_ip, my_ip;
+    int i;
+
+    AsciiPrint("Hagfish UEFI loader starting\n");
+
+    DebugPrint(DEBUG_INFO, "UEFI vendor: %s\n", gST->FirmwareVendor);
+
+    /* Get the details of our own process image. */
+    hag_image= my_image();
+    if(!hag_image) return EFI_SUCCESS;
+
+    DebugPrint(DEBUG_INFO, "Hagfish loaded at %p, size %dB, by handle %p\n",
+        hag_image->ImageBase, hag_image->ImageSize, hag_image->DeviceHandle);
+
+    /* Find the PXE service that loaded us. */
+    DebugPrint(DEBUG_INFO,
+               "Connecting to the PXE service that loaded me.\n");
+    pxe= pxe_loader(hag_image);
+    if(!pxe) return EFI_SUCCESS;
+
+    /* Check network status. */
+    status= net_config(pxe, &my_ip, &server_ip);
+    if(EFI_ERROR(status)) return EFI_SUCCESS;
+
+    /* Load and parse the configuration file. */
+    struct hagfish_config *cfg= load_config(pxe, &my_ip, &server_ip);
+    if(!cfg) return EFI_SUCCESS;
+
+    /* Load the kernel. */
+    DebugPrint(DEBUG_INFO, "Loading the kernel.\n");
+    if(!load_component(cfg->kernel, cfg->buf, pxe, &server_ip)) {
+        DebugPrint(DEBUG_ERROR, "Failed to load the kernel.\n");
         return EFI_SUCCESS;
     }
 
-    struct region_list *region_list=
-        get_region_list(gST);
-    if(!region_list) {
-        DebugPrint(DEBUG_ERROR, "Failed to get region list\n");
+    /* Load the modules */
+    DebugPrint(DEBUG_INFO, "Loading modules.\n");
+    {
+        struct component_config *cmp;
+
+        for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
+            if(!load_component(cmp, cfg->buf, pxe, &server_ip)) {
+                DebugPrint(DEBUG_ERROR, "Failed to load module.\n");
+            return EFI_SUCCESS;
+            }
+        }
+    }
+
+    /* Create the multiboot header. */
+    if(!create_multiboot_info(cfg, pxe)) {
+        DebugPrint(DEBUG_ERROR, "Failed to create multiboot structure.\n");
         return EFI_SUCCESS;
     }
+
+    /* Finished with PXE. */
+    status= pxe_done(hag_image);
+    if(EFI_ERROR(status)) return EFI_SUCCESS;
+    /* pxe is now invalid. */
+
+    /* Finished with the loaded image protocol. */
+    status= image_done();
+    if(EFI_ERROR(status)) return EFI_SUCCESS;
+    /* hag_image is now invalid. */
 
     /* Print out the discovered RAM regions */
-    print_ram_regions(region_list);
+    status= update_ram_regions(cfg);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Failed to get RAM regions.\n");
+        return EFI_SUCCESS;
+    }
+    print_ram_regions(cfg->ram_regions);
 
     /* Build the direct-mapped page tables for the kernel. */
-    struct page_tables *tables= build_page_tables(gST, region_list);
-    if(!tables) {
+    status= build_page_tables(cfg);
+    if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Failed to create initial page table.\n");
         return EFI_SUCCESS;
     }
 
-    free_region_list(region_list);
-    free_page_table_bookkeeping(tables);
-
-    if((DEBUG_VERBOSE & GetDebugPrintErrorLevel())) {
-        print_memory_map(gST);
+    /* Load the CPU driver from its ELF image, and relocate it. */
+    status= prepare_kernel(cfg);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Failed to prepare CPU driver.\n");
+        return EFI_SUCCESS;
     }
+
+    /* Free all dynamically-allocated configuration that we're not passing to
+     * the CPU driver. */
+    free_bookkeeping(cfg);
 
     /* The last thing we do is to grab the final memory map, including any
      * allocations and deallocations we've done, as per the UEFI spec
      * recommendation.  This fills in the space we set aside in the multiboot
      * structure. */
-    UINTN mmap_size, mmap_key, mmap_d_size, mmap_n_desc;
-    UINT32 mmap_d_ver;
+    status= update_memory_map();
+    if(EFI_ERROR(status)) return EFI_SUCCESS;
 
-    mmap_size= MEM_MAP_SIZE; /* Preallocated buffer */
-    status= get_memory_map(gST,
-                           &mmap_size, &mmap_key,
-                           &mmap_d_size, &mmap_d_ver, mmap);
-    if(status != EFI_SUCCESS) return EFI_SUCCESS;
-    DebugPrint(DEBUG_INFO,
-               "Memory map at %p, key: %x, descriptor version: %x\n",
-               mmap, mmap_key, mmap_d_ver);
-    mmap_n_desc= mmap_size / mmap_d_size;
-    DebugPrint(DEBUG_INFO,
-               "Got %d memory map entries (%dB).\n", mmap_n_desc, mmap_size);
+    if((DEBUG_VERBOSE & GetDebugPrintErrorLevel())) print_memory_map();
 
     /* Fill in the tag.  We can't use GetMemoryMap to fill these directly, as
      * the multiboot specification requires them to be 32 bit, while EFI may
      * return 64-bit values.  Note that 'mmap_tag' points *inside* the
      * structure pointed to by 'multiboot'. */
-    mmap_tag->type= MULTIBOOT_TAG_TYPE_EFI_MMAP;
-    mmap_tag->size= sizeof(struct multiboot_tag_efi_mmap) + mmap_size;
-    mmap_tag->descr_size= mmap_d_size;
-    mmap_tag->descr_vers= mmap_d_ver;
+    cfg->mmap_tag->type= MULTIBOOT_TAG_TYPE_EFI_MMAP;
+    cfg->mmap_tag->size= sizeof(struct multiboot_tag_efi_mmap)
+                       + mmap_size;
+    cfg->mmap_tag->descr_size= mmap_d_size;
+    cfg->mmap_tag->descr_vers= mmap_d_ver;
 
 #if 0
 
@@ -661,7 +750,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
     status= gST->BootServices->ExitBootServices(
                 gImageHandle, mmap_key);
-    if(status != EFI_SUCCESS) {
+    if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "ExitBootServices: %r\n", status);
         return EFI_SUCCESS;
     }
@@ -669,9 +758,9 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /*** EFI boot services are now terminated, we're on our own. */
 
     /* Jump to the start of the loaded image - doesn't return. */
-    SwitchStack((SWITCH_STACK_ENTRY_POINT)enter_cpu_driver,
+    SwitchStack((SWITCH_STACK_ENTRY_POINT)cfg->kernel_entry,
                 (void *)MULTIBOOT2_BOOTLOADER_MAGIC, multiboot,
-                kernel_stack);
+                cfg->kernel_stack);
 
 #endif
 

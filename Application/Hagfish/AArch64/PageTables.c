@@ -14,6 +14,7 @@
 
 /* Application headers */
 #include <Allocation.h>
+#include <Config.h>
 #include <PageTables.h>
 #include <Util.h>
 
@@ -26,17 +27,27 @@ struct page_tables {
 
 #define BLOCK_16G (ARMv8_HUGE_PAGE_SIZE * 16ULL)
 
-struct page_tables *
-build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
-                  struct region_list *list) {
+EFI_STATUS
+build_page_tables(struct hagfish_config *cfg) {
+    EFI_STATUS status= EFI_SUCCESS;
+
+    status= update_ram_regions(cfg);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Failed to get RAM regions.\n");
+        goto build_page_tables_fail;
+    }
+    struct region_list *list= cfg->ram_regions;
+
     if(list->nregions == 0) {
         DebugPrint(DEBUG_ERROR, "No memory regions defined.\n");
+        status= EFI_LOAD_ERROR;
         goto build_page_tables_fail;
     }
 
-    struct page_tables *tables= calloc(1, sizeof(struct page_tables));
-    if(!tables) {
+    cfg->tables= calloc(1, sizeof(struct page_tables));
+    if(!cfg->tables) {
         DebugPrint(DEBUG_ERROR, "calloc: %a\n", strerror(errno));
+        status= EFI_OUT_OF_RESOURCES;
         goto build_page_tables_fail;
     }
 
@@ -57,29 +68,30 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
     DebugPrint(DEBUG_INFO, "Mapping 16GB blocks from %llx to %llx\n",
                window_start, window_start + window_length - 1);
 
-    tables->L0_table= allocate_pages(1, EfiBarrelfishBootPageTable);
-    if(!tables->L0_table) {
+    cfg->tables->L0_table= allocate_pages(1, EfiBarrelfishBootPageTable);
+    if(!cfg->tables->L0_table) {
         DebugPrint(DEBUG_ERROR, "Failed to allocate L0 page table.\n");
         goto build_page_tables_fail;
     }
-    memset(tables->L0_table, 0, PAGE_4k);
+    memset(cfg->tables->L0_table, 0, PAGE_4k);
 
     /* Count the number of L1 tables (512GB) blocks required to cover the
      * physical mapping window. */
-    tables->nL1= 0;
+    cfg->tables->nL1= 0;
     uint64_t L1base= window_start & ~ARMv8_TOP_TABLE_SIZE;
     uint64_t L1addr;
     for(L1addr= window_start & ~ARMv8_TOP_TABLE_SIZE;
         L1addr < window_start + window_length;
         L1addr+= ARMv8_TOP_TABLE_SIZE) {
-        tables->nL1++;
+        cfg->tables->nL1++;
     }
 
-    DebugPrint(DEBUG_INFO, "Allocating %d L1 tables\n", tables->nL1);
+    DebugPrint(DEBUG_INFO, "Allocating %d L1 tables\n", cfg->tables->nL1);
 
     /* ALlocate the L1 table pointers. */
-    tables->L1_tables= calloc(tables->nL1, sizeof(union aarch64_descriptor *));
-    if(!tables->L1_tables) {
+    cfg->tables->L1_tables=
+        calloc(cfg->tables->nL1, sizeof(union aarch64_descriptor *));
+    if(!cfg->tables->L1_tables) {
         DebugPrint(DEBUG_ERROR,
                    "Failed to allocate L1 page table pointers.\n");
         goto build_page_tables_fail;
@@ -87,20 +99,21 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
 
     /* Allocate the L1 tables. */
     size_t i;
-    for(i= 0; i < tables->nL1; i++) {
-        tables->L1_tables[i]= allocate_pages(1, EfiBarrelfishBootPageTable);
-        if(!tables->L1_tables[i]) {
+    for(i= 0; i < cfg->tables->nL1; i++) {
+        cfg->tables->L1_tables[i]=
+            allocate_pages(1, EfiBarrelfishBootPageTable);
+        if(!cfg->tables->L1_tables[i]) {
             DebugPrint(DEBUG_ERROR, "Failed to allocate L1 page tables.\n");
             goto build_page_tables_fail;
         }
-        memset(tables->L1_tables[i], 0, PAGE_4k);
+        memset(cfg->tables->L1_tables[i], 0, PAGE_4k);
 
         /* Map the L1 into the L0. */
         size_t L0_index= (L1base >> ARMv8_TOP_TABLE_BITS) + i;
-        tables->L0_table[L0_index].d.base=
-            (uint64_t)tables->L1_tables[i] >> ARMv8_BASE_PAGE_BITS;
-        tables->L0_table[L0_index].d.mb1=   1; /* Page table */
-        tables->L0_table[L0_index].d.valid= 1;
+        cfg->tables->L0_table[L0_index].d.base=
+            (uint64_t)cfg->tables->L1_tables[i] >> ARMv8_BASE_PAGE_BITS;
+        cfg->tables->L0_table[L0_index].d.mb1=   1; /* Page table */
+        cfg->tables->L0_table[L0_index].d.valid= 1;
     }
 
     /* Install the 1GB block mappings. */
@@ -110,39 +123,42 @@ build_page_tables(EFI_SYSTEM_TABLE *SystemTable,
     for(block= firstblock; block < firstblock + nblocks; block++) {
         size_t table_number= block >> ARMv8_BLOCK_BITS;
         size_t table_index= block & ARMv8_BLOCK_MASK;
+        union aarch64_descriptor *desc =
+            &cfg->tables->L1_tables[table_number][table_index];
 
         /* We're mapping 16GB contiguous blocks, to save TLB entries. */
-        tables->L1_tables[table_number][table_index].block_l1.contiguous= 1;
-        tables->L1_tables[table_number][table_index].block_l1.base= block;
+        desc->block_l1.contiguous= 1;
+        desc->block_l1.base= block;
         /* Mark the accessed flag, so we don't get a fault. */
-        tables->L1_tables[table_number][table_index].block_l1.af= 1;
+        desc->block_l1.af= 1;
         /* Outer shareable - coherent. */
-        tables->L1_tables[table_number][table_index].block_l1.sh= 2;
+        desc->block_l1.sh= 2;
         /* EL1+ only. */
-        tables->L1_tables[table_number][table_index].block_l1.ap= 0;
+        desc->block_l1.ap= 0;
         /* Normal memory XXX set up MAIR_EL{1,2}[0]. */
-        tables->L1_tables[table_number][table_index].block_l1.attrindex= 0;
+        desc->block_l1.attrindex= 0;
         /* A block. */
-        tables->L1_tables[table_number][table_index].block_l1.mb0= 0;
-        tables->L1_tables[table_number][table_index].block_l1.valid= 1;
+        desc->block_l1.mb0= 0;
+        desc->block_l1.valid= 1;
     }
 
-    return tables;
+    return EFI_SUCCESS;
 
 build_page_tables_fail:
-    if(tables) {
-        if(tables->L1_tables) {
+    if(cfg->tables) {
+        if(cfg->tables->L1_tables) {
             size_t i;
-            for(i= 0; i < tables->nL1; i++) {
-                if(tables->L1_tables[i]) FreePages(tables->L1_tables[i], 1);
+            for(i= 0; i < cfg->tables->nL1; i++) {
+                if(cfg->tables->L1_tables[i])
+                    FreePages(cfg->tables->L1_tables[i], 1);
             }
-            free(tables->L1_tables);
+            free(cfg->tables->L1_tables);
         }
-        if(tables->L0_table) FreePages(tables->L0_table, 1);
-        free(tables);
+        if(cfg->tables->L0_table) FreePages(cfg->tables->L0_table, 1);
+        free(cfg->tables);
     }
 
-    return NULL;
+    return status;
 }
 
 void
@@ -150,4 +166,3 @@ free_page_table_bookkeeping(struct page_tables *tables) {
     free(tables->L1_tables);
     free(tables);
 }
-

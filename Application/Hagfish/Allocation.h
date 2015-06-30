@@ -5,11 +5,6 @@
 
 #include <sys/types.h>
 
-/* We preallocate space for the memory map, to avoid the recursion between
- * checking the memory map size and allocating memory for it.  This will
- * obviously fail if the memory map is particularly big. */
-#define MEM_MAP_SIZE 8192
-
 /* We allocate three new EFI memory types to signal to the CPU driver where
  * its code, data, stack and Multiboot info block are located, so that it can
  * avoid trampling on them. */
