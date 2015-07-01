@@ -719,6 +719,9 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         return EFI_SUCCESS;
     }
 
+    status= arch_init(cfg);
+    if(EFI_ERROR(status)) return EFI_SUCCESS;
+
     /* Free all dynamically-allocated configuration that we're not passing to
      * the CPU driver. */
     free_bookkeeping(cfg);

@@ -74,6 +74,9 @@
     UefiRuntimeLib|MdePkg/Library/UefiRuntimeLib/UefiRuntimeLib.inf
     UefiDriverEntryPoint|MdePkg/Library/UefiDriverEntryPoint/UefiDriverEntryPoint.inf
 
+[LibraryClasses.AARCH64]
+    ArmLib|ArmPkg/Library/ArmLib/AArch64/AArch64Lib.inf
+
 [SkuIds]
     0|DEFAULT
 

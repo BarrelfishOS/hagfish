@@ -11,6 +11,7 @@ struct page_tables;
 #include <Memory.h>
 
 EFI_STATUS build_page_tables(struct hagfish_config *cfg);
+EFI_STATUS arch_init(struct hagfish_config *cfg);
 void free_page_table_bookkeeping(struct page_tables *tables);
 
 #endif /* __HAGFISH_PAGE_TABLES_H */

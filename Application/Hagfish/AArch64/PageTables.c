@@ -4,6 +4,8 @@
 #include <string.h>
 
 /* EDK headers */
+#include <Chipset/AArch64.h>
+#include <Library/ArmLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiLib.h>
@@ -24,6 +26,29 @@ struct page_tables {
     union aarch64_descriptor *L0_table;
     union aarch64_descriptor **L1_tables;
 };
+
+void
+dump_table(uint64_t vbase, uint64_t *table, size_t level) {
+    size_t i;
+
+    ASSERT(level <= 3);
+
+    for(i= 0; i < TT_ENTRY_COUNT; i++) {
+        uint64_t virtual= vbase + TT_ADDRESS_AT_LEVEL(level) * i;
+        uint64_t type= table[i] & TT_TYPE_MASK;
+        uint64_t base= table[i] & TT_ADDRESS_MASK_DESCRIPTION_TABLE;
+
+        if(level < 3 && type == TT_TYPE_TABLE_ENTRY) {
+            AsciiPrint("%d.%d table\n", level, i);
+            dump_table(virtual, (uint64_t *)base, level+1);
+        }
+        else if(type == TT_TYPE_BLOCK_ENTRY ||
+                (level == 3 && type == TT_TYPE_BLOCK_ENTRY_LEVEL3)) {
+            AsciiPrint("%d.%d block %012llx -> %012llx\n",
+                       level, i, virtual, base);
+        }
+    }
+}
 
 #define BLOCK_16G (ARMv8_HUGE_PAGE_SIZE * 16ULL)
 
@@ -51,12 +76,18 @@ build_page_tables(struct hagfish_config *cfg) {
         goto build_page_tables_fail;
     }
 
+    /* Map up to the highest RAM address supplied by EFI.  XXX - this is a
+     * heuristic, and may fail.  Unless there's a more clever way to do
+     * discovery, we might need to bite the bullet and map all 48 bits (2MB of
+     * kernel page tables!).  All we really need is that the kernel gets all
+     * RAM, and the debug serial port - it shouldn't actually touch anything
+     * else. */
     uint64_t first_address, last_address;
-    first_address= list->regions[0].base;
+    first_address= 0;
     last_address= list->regions[list->nregions-1].base
                 + list->regions[list->nregions-1].npages * PAGE_4k - 1;
 
-    DebugPrint(DEBUG_INFO, "RAM window from %llx to %llx\n",
+    DebugPrint(DEBUG_INFO, "Kernel physical window from %llx to %llx\n",
                first_address, last_address);
 
     /* We will map in aligned 16G blocks, as each requires only one TLB
@@ -165,4 +196,178 @@ void
 free_page_table_bookkeeping(struct page_tables *tables) {
     free(tables->L1_tables);
     free(tables);
+}
+
+EFI_STATUS
+describe_tcr(UINTN tcr) {
+    DebugPrint(DEBUG_INFO, "  Physical addresses are ");
+    switch(tcr & TCR_EL23_PS_MASK) {
+        case TCR_PS_4GB:
+            DebugPrint(DEBUG_INFO, "32b (4GB)\n");
+            break;
+        case TCR_PS_64GB:
+            DebugPrint(DEBUG_INFO, "36b (64GB)\n");
+            break;
+        case TCR_PS_1TB:
+            DebugPrint(DEBUG_INFO, "40b (1TB)\n");
+            break;
+        case TCR_PS_4TB:
+            DebugPrint(DEBUG_INFO, "42b (4TB)\n");
+            break;
+        case TCR_PS_16TB:
+            DebugPrint(DEBUG_INFO, "44b (16TB)\n");
+            break;
+        case TCR_PS_256TB:
+            DebugPrint(DEBUG_INFO, "48b (256TB)\n");
+            break;
+        default:
+            DebugPrint(DEBUG_INFO, "unknown!\n");
+            return EFI_UNSUPPORTED;
+    }
+
+    DebugPrint(DEBUG_INFO, "  Translation granule is ");
+    switch(tcr & TCR_EL23_TG0_MASK) {
+        case TCR_TG0_4KB:
+            DebugPrint(DEBUG_INFO, "4kB\n");
+            break;
+        case 1:
+            DebugPrint(DEBUG_INFO, "64kB\n");
+            break;
+        case 2:
+            DebugPrint(DEBUG_INFO, "16kB\n");
+            break;
+        default:
+            DebugPrint(DEBUG_INFO, "unknown or unsupported.\n");
+            return EFI_UNSUPPORTED;
+    }
+
+    DebugPrint(DEBUG_INFO, "  Table walks are ");
+    switch(tcr & TCR_EL23_SH0_MASK) {
+        case TCR_SH_NON_SHAREABLE:
+            DebugPrint(DEBUG_INFO, "unsharable (non-coherent).\n");
+            break;
+        case TCR_SH_OUTER_SHAREABLE:
+            DebugPrint(DEBUG_INFO, "outer sharable (coherent).\n");
+            break;
+        case TCR_SH_INNER_SHAREABLE:
+            DebugPrint(DEBUG_INFO, "inner sharable (coherent).\n");
+            break;
+        default:
+            DebugPrint(DEBUG_INFO, "unknown or unsupported.\n");
+            return EFI_UNSUPPORTED;
+    }
+
+    DebugPrint(DEBUG_INFO, "  Outer caching is ");
+    switch(tcr & TCR_EL23_ORGN0_MASK) {
+        case TCR_RGN_OUTER_NON_CACHEABLE:
+            DebugPrint(DEBUG_INFO, "disabled.\n");
+            break;
+        case TCR_RGN_OUTER_WRITE_BACK_ALLOC:
+            DebugPrint(DEBUG_INFO, "write-back, write-allocate.\n");
+            break;
+        case TCR_RGN_OUTER_WRITE_THROUGH:
+            DebugPrint(DEBUG_INFO, "write-through.\n");
+            break;
+        case TCR_RGN_OUTER_WRITE_BACK_NO_ALLOC:
+            DebugPrint(DEBUG_INFO, "write-back, no write-allocate.\n");
+            break;
+        default:
+            DebugPrint(DEBUG_INFO, "unknown or unsupported.\n");
+            return EFI_UNSUPPORTED;
+    }
+
+    DebugPrint(DEBUG_INFO, "  Inner caching is ");
+    switch(tcr & TCR_EL23_IRGN0_MASK) {
+        case TCR_RGN_INNER_NON_CACHEABLE:
+            DebugPrint(DEBUG_INFO, "disabled.\n");
+            break;
+        case TCR_RGN_INNER_WRITE_BACK_ALLOC:
+            DebugPrint(DEBUG_INFO, "write-back, write-allocate.\n");
+            break;
+        case TCR_RGN_INNER_WRITE_THROUGH:
+            DebugPrint(DEBUG_INFO, "write-through.\n");
+            break;
+        case TCR_RGN_INNER_WRITE_BACK_NO_ALLOC:
+            DebugPrint(DEBUG_INFO, "write-back, no write-allocate.\n");
+            break;
+        default:
+            DebugPrint(DEBUG_INFO, "unknown or unsupported.\n");
+            return EFI_UNSUPPORTED;
+    }
+
+    UINTN t0sz= tcr & TCR_T0SZ_MASK;
+    DebugPrint(DEBUG_INFO, "  EL2 virtual address region is %db (%dGB)\n",
+               64 - t0sz, 1 << (64 - t0sz - 30));
+
+    return EFI_SUCCESS;
+}
+
+EFI_STATUS
+arch_init(struct hagfish_config *cfg) {
+    EFI_STATUS status;
+
+    DebugPrint(DEBUG_INFO, "AArch64: CPU initialisation.\n");
+
+    if(ArmMmuEnabled()) DebugPrint(DEBUG_INFO, "AArch64: MMU is enabled.\n");
+    else {
+        DebugPrint(DEBUG_ERROR,
+                   "AArch64: MMU is disabled: I didn't expect that.\n");
+        return EFI_UNSUPPORTED;
+    }
+
+    UINTN current_el= ArmReadCurrentEL();
+    switch(current_el) {
+        case AARCH64_EL2:
+            DebugPrint(DEBUG_INFO, "AArch64: Executing at EL2.\n");
+            break;
+        default:
+            DebugPrint(DEBUG_ERROR, "AArch64: Unknown or unsupported EL.\n");
+            return EFI_UNSUPPORTED;
+    }
+
+    DebugPrint(DEBUG_INFO, "AArch64: EFI-supplied page table root is %p\n",
+               ArmGetTTBR0BaseAddress());
+
+    DebugPrint(DEBUG_INFO, "AArch64: Current configuration:\n");
+    UINTN tcr= ArmGetTCR();
+    status= describe_tcr(tcr);
+    if(EFI_ERROR(status)) return status;
+
+    /* Configure a 48b physical address space, with a 4kB translation granule,
+     * and non-coherent non-shared table access, in a 48b virtual region. */
+    /* XXX - Revisit the coherence/caching decision. */
+    UINTN newtcr= TCR_PS_256TB | TCR_TG0_4KB | TCR_SH_NON_SHAREABLE
+                | TCR_RGN_OUTER_NON_CACHEABLE | TCR_RGN_INNER_NON_CACHEABLE
+                | (64 - 48) /* T0SZ */;
+
+    ASSERT(cfg->tables->L0_table);
+    DebugPrint(DEBUG_INFO, "AArch64: Switching to table at %p\n",
+               cfg->tables->L0_table);
+
+    /* We don't want an interrupt handler to fire during the table switch. */
+    ArmDisableInterrupts();
+
+    /* Clean the data cache, to ensure that all table entries are in RAM.
+     * Note that we just set table walks to uncached.  This drains the write
+     * buffer and does a store barrier internally. */
+    ArmCleanDataCache();
+
+    /* Switch the table root and translation configuration. */
+    ArmSetTTBR0(cfg->tables->L0_table);
+    ArmSetTCR(newtcr);
+
+    /* Invalidate the TLB, to flush the old table's mappings. */
+    ArmInvalidateTlb();
+
+    /* Invalidate the instruction cache, and perform a barrier to ensure that
+     * all instructions from this point on are fetched via the new mappings. */
+    ArmInvalidateInstructionCache();
+    ArmInstructionSynchronizationBarrier();
+
+    /* Interrupts are now safe again. */
+    ArmEnableInterrupts();
+
+    DebugPrint(DEBUG_INFO, "AArch64: Table switch done\n");
+
+    return EFI_SUCCESS;
 }

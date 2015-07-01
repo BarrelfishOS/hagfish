@@ -18,12 +18,14 @@
     AArch64/PageTables.c
 
 [Packages]
+    ArmPkg/ArmPkg.dec
     StdLib/StdLib.dec
     Hagfish/Hagfish.dec
     MdePkg/MdePkg.dec
     MdeModulePkg/MdeModulePkg.dec
 
 [LibraryClasses]
+    ArmLib
     DebugPrintErrorLevelLib
     UefiApplicationEntryPoint
     UefiLib
