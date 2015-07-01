@@ -15,7 +15,7 @@
     Memory.c
 
 [Sources.AARCH64]
-    AArch64/PageTables.c
+    AArch64/Hardware.c
 
 [Packages]
     ArmPkg/ArmPkg.dec

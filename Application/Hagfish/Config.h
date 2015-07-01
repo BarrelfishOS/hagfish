@@ -60,8 +60,8 @@ struct hagfish_config {
 
 /* Application headers */
 #include <Allocation.h>
+#include <Hardware.h>
 #include <Memory.h>
-#include <PageTables.h>
 
 struct hagfish_config *parse_config(char *buf, size_t size);
 void free_bookkeeping(struct hagfish_config *cfg);

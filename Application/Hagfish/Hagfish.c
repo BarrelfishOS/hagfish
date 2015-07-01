@@ -38,8 +38,8 @@
 /* Application headers */
 #include <Allocation.h>
 #include <Config.h>
+#include <Hardware.h>
 #include <Memory.h>
-#include <PageTables.h>
 #include <Util.h>
 
 #define roundpage(x) COVER((x), PAGE_4k)
@@ -740,8 +740,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
      * return 64-bit values.  Note that 'mmap_tag' points *inside* the
      * structure pointed to by 'multiboot'. */
     cfg->mmap_tag->type= MULTIBOOT_TAG_TYPE_EFI_MMAP;
-    cfg->mmap_tag->size= sizeof(struct multiboot_tag_efi_mmap)
-                       + mmap_size;
+    cfg->mmap_tag->size= sizeof(struct multiboot_tag_efi_mmap) + mmap_size;
     cfg->mmap_tag->descr_size= mmap_d_size;
     cfg->mmap_tag->descr_vers= mmap_d_ver;
 

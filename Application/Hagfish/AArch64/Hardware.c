@@ -17,7 +17,7 @@
 /* Application headers */
 #include <Allocation.h>
 #include <Config.h>
-#include <PageTables.h>
+#include <Hardware.h>
 #include <Util.h>
 
 struct page_tables {
