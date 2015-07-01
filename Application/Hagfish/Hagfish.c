@@ -719,8 +719,23 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         return EFI_SUCCESS;
     }
 
-    status= arch_init(cfg);
+    status= arch_probe();
     if(EFI_ERROR(status)) return EFI_SUCCESS;
+
+    /* Save the kernel entry point and other pointers (we're about to free
+     * cfg).  As these copies are sitting on our stack, they'll be freed when
+     * the CPU driver recycles Hagfish's memory regions. */
+    void *kernel_entry= cfg->kernel_entry;
+    void *multiboot= cfg->multiboot;
+    void *kernel_stack= cfg->kernel_stack;
+    size_t stack_size= cfg->stack_size;
+    void *root_table= get_root_table(cfg);
+
+    ASSERT(kernel_entry);
+    ASSERT(multiboot);
+    ASSERT(kernel_stack);
+    ASSERT(stack_size > 0);
+    ASSERT(root_table);
 
     /* Free all dynamically-allocated configuration that we're not passing to
      * the CPU driver. */
@@ -733,8 +748,6 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     status= update_memory_map();
     if(EFI_ERROR(status)) return EFI_SUCCESS;
 
-    if((DEBUG_VERBOSE & GetDebugPrintErrorLevel())) print_memory_map();
-
     /* Fill in the tag.  We can't use GetMemoryMap to fill these directly, as
      * the multiboot specification requires them to be 32 bit, while EFI may
      * return 64-bit values.  Note that 'mmap_tag' points *inside* the
@@ -744,11 +757,11 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     cfg->mmap_tag->descr_size= mmap_d_size;
     cfg->mmap_tag->descr_vers= mmap_d_ver;
 
-#if 0
-
     /* Exit EFI boot services. */
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
-               enter_cpu_driver);
+               kernel_entry);
+    AsciiPrint("New stack pointer is %p\n",
+               kernel_stack + stack_size - 16);
 
     status= gST->BootServices->ExitBootServices(
                 gImageHandle, mmap_key);
@@ -759,12 +772,13 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
     /*** EFI boot services are now terminated, we're on our own. */
 
-    /* Jump to the start of the loaded image - doesn't return. */
-    SwitchStack((SWITCH_STACK_ENTRY_POINT)cfg->kernel_entry,
-                (void *)MULTIBOOT2_BOOTLOADER_MAGIC, multiboot,
-                cfg->kernel_stack);
+    /* Do MMU configuration, switch page tables. */
+    arch_init(root_table);
 
-#endif
+    /* Jump to the start of the loaded image - doesn't return. */
+    SwitchStack((SWITCH_STACK_ENTRY_POINT)kernel_entry,
+                (void *)MULTIBOOT2_BOOTLOADER_MAGIC, multiboot,
+                kernel_stack + stack_size - 16);
 
     return EFI_SUCCESS;
 }

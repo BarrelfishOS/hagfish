@@ -27,6 +27,15 @@ struct page_tables {
     union aarch64_descriptor **L1_tables;
 };
 
+void *
+get_root_table(struct hagfish_config *cfg) {
+    ASSERT(cfg);
+    ASSERT(cfg->tables);
+    ASSERT(cfg->tables->L0_table);
+
+    return cfg->tables->L0_table;
+}
+
 void
 dump_table(uint64_t vbase, uint64_t *table, size_t level) {
     size_t i;
@@ -303,7 +312,7 @@ describe_tcr(UINTN tcr) {
 }
 
 EFI_STATUS
-arch_init(struct hagfish_config *cfg) {
+arch_probe(void) {
     EFI_STATUS status;
 
     DebugPrint(DEBUG_INFO, "AArch64: CPU initialisation.\n");
@@ -333,16 +342,17 @@ arch_init(struct hagfish_config *cfg) {
     status= describe_tcr(tcr);
     if(EFI_ERROR(status)) return status;
 
+    return EFI_SUCCESS;
+}
+
+void
+arch_init(void *L0_table) {
     /* Configure a 48b physical address space, with a 4kB translation granule,
      * and non-coherent non-shared table access, in a 48b virtual region. */
     /* XXX - Revisit the coherence/caching decision. */
     UINTN newtcr= TCR_PS_256TB | TCR_TG0_4KB | TCR_SH_NON_SHAREABLE
                 | TCR_RGN_OUTER_NON_CACHEABLE | TCR_RGN_INNER_NON_CACHEABLE
                 | (64 - 48) /* T0SZ */;
-
-    ASSERT(cfg->tables->L0_table);
-    DebugPrint(DEBUG_INFO, "AArch64: Switching to table at %p\n",
-               cfg->tables->L0_table);
 
     /* We don't want an interrupt handler to fire during the table switch. */
     ArmDisableInterrupts();
@@ -353,7 +363,7 @@ arch_init(struct hagfish_config *cfg) {
     ArmCleanDataCache();
 
     /* Switch the table root and translation configuration. */
-    ArmSetTTBR0(cfg->tables->L0_table);
+    ArmSetTTBR0(L0_table);
     ArmSetTCR(newtcr);
 
     /* Invalidate the TLB, to flush the old table's mappings. */
@@ -366,8 +376,4 @@ arch_init(struct hagfish_config *cfg) {
 
     /* Interrupts are now safe again. */
     ArmEnableInterrupts();
-
-    DebugPrint(DEBUG_INFO, "AArch64: Table switch done\n");
-
-    return EFI_SUCCESS;
 }

@@ -46,12 +46,12 @@ static const char *bf_mmap_types[] = {
 };
 
 void
-print_memory_map(void) {
-    EFI_STATUS status;
+print_memory_map(int update_map) {
+    EFI_STATUS status= EFI_SUCCESS;
     size_t mmap_n_desc, i;
 
-    status= update_memory_map();
-    if(EFI_ERROR(status)) {
+    if(update_map) status= update_memory_map();
+    if(EFI_ERROR(status) || !mmap) {
         DebugPrint(DEBUG_ERROR, "Couldn't get the current memory map: %r\n",
                    status);
         return;
