@@ -253,6 +253,20 @@ free_region_list(struct region_list *list) {
     free(list);
 }
 
+size_t
+search_region_list(struct region_list *list, uint64_t addr) {
+    size_t i;
+
+    for(i= 0; i < list->nregions; i++) {
+        if(list->regions[i].base <= addr &&
+           addr < list->regions[i].base + list->regions[i].npages * PAGE_4k) {
+            break;
+        }
+    }
+
+    return i;
+}
+
 void
 print_ram_regions(struct region_list *region_list) {
     size_t i;

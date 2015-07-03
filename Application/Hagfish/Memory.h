@@ -32,6 +32,7 @@ struct region_list {
 EFI_STATUS update_ram_regions(struct hagfish_config *cfg);
 struct region_list *get_region_list(struct hagfish_config *cfg);
 void free_region_list(struct region_list *list);
+size_t search_region_list(struct region_list *list, uint64_t addr);
 void print_ram_regions(struct region_list *region_list);
 EFI_STATUS update_memory_map(void);
 void print_memory_map(int update_map);

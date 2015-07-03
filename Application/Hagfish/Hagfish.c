@@ -282,6 +282,128 @@ create_multiboot_info(struct hagfish_config *cfg,
 }
 
 EFI_STATUS
+relocate_elf(struct hagfish_config *cfg, Elf *elf,
+             Elf64_Phdr *phdr, size_t phnum) {
+    EFI_STATUS status;
+    size_t n_scn, i;
+
+    DebugPrint(DEBUG_INFO, "Relocating kernel image.\n");
+
+    status= elf_getshdrnum(elf, &n_scn);
+    if(status) {
+        DebugPrint(DEBUG_ERROR, "elf_getshdrnum: %a\n",
+                   elf_errmsg(elf_errno()));
+        return EFI_LOAD_ERROR;
+    }
+
+    /* Search for relocaton sections. */
+    for(i= 0; i < n_scn; i++) {
+        Elf_Scn *scn= elf_getscn(elf, i);
+        if(!scn) {
+            DebugPrint(DEBUG_ERROR, "elf_getscn: %a\n",
+                       elf_errmsg(elf_errno()));
+            return EFI_LOAD_ERROR;
+        }
+
+        Elf64_Shdr *shdr= elf64_getshdr(scn);
+        if(!shdr) {
+            DebugPrint(DEBUG_ERROR, "elf64_getshdr: %a\n",
+                       elf_errmsg(elf_errno()));
+            return EFI_LOAD_ERROR;
+        }
+
+        if(shdr->sh_type == SHT_REL ||
+           shdr->sh_type == SHT_RELA) {
+            if(shdr->sh_info != 0) {
+                DebugPrint(DEBUG_ERROR,
+                    "I expected global relocations, but got"
+                    " section-specific ones.\n");
+                return EFI_UNSUPPORTED;
+            }
+
+            /* Hardcoded for one loadable segment. */
+            ASSERT(phnum == 1);
+
+            Elf64_Addr segment_elf_base= phdr[0].p_vaddr;
+            Elf64_Addr segment_load_base=
+                cfg->kernel_segments->regions[0].base;
+            Elf64_Sxword segment_delta= segment_load_base - segment_elf_base;
+
+            /* Walk the section data descriptors. */
+            Elf_Data *reldata;
+            for(reldata= elf_getdata(scn, NULL);
+                reldata;
+                reldata= elf_getdata(scn, reldata)) {
+                size_t rsize;
+                if(shdr->sh_type == SHT_REL) rsize= sizeof(Elf64_Rel);
+                else                         rsize= sizeof(Elf64_Rela);
+
+                size_t nrel= reldata->d_size / rsize;
+
+                /* Iterate through the relocations. */
+                size_t i;
+                for(i= 0; i < nrel; i++) {
+                    void *reladdr= reldata->d_buf + i * rsize;
+                    Elf64_Addr offset;
+                    Elf64_Xword sym, type;
+                    Elf64_Sxword addend;
+
+                    if(shdr->sh_type == SHT_REL) {
+                        DebugPrint(DEBUG_ERROR,
+                                   "SHT_REL unimplemented.\n");
+                        return EFI_LOAD_ERROR;
+                    }
+                    else { /* SHT_RELA */
+                        Elf64_Rela *rel= reladdr;
+
+                        offset= rel->r_offset;
+                        sym= ELF64_R_SYM(rel->r_info);
+                        type= ELF64_R_TYPE(rel->r_info);
+                        addend= rel->r_addend;
+
+                        uint64_t *rel_target= (void *)offset + segment_delta;
+
+                        switch(type) {
+                            case R_AARCH64_RELATIVE:
+                                if(sym != 0) {
+                                    DebugPrint(DEBUG_ERROR,
+                                               "Relocation references a"
+                                               " dynamic symbol, which is"
+                                               " unsupported.\n");
+                                    return EFI_UNSUPPORTED;
+                                }
+
+                                /* Delta(S) + A */
+                                *rel_target= addend + segment_delta;
+
+#if 0
+                                AsciiPrint("REL %p -> %llx\n",
+                                           rel_target, *rel_target);
+#endif
+                                break;
+
+                            default:
+                                DebugPrint(DEBUG_ERROR,
+                                           "Unsupported relocation type %d\n",
+                                           type);
+                                return EFI_UNSUPPORTED;
+                        }
+                    }
+
+#if 0
+                    AsciiPrint("REL: offset %llx, addend %llx, type %d"
+                               ", symbol %d\n",
+                               offset, addend, type, sym);
+#endif
+                }
+            }
+        }
+    }
+
+    return EFI_SUCCESS;
+}
+
+EFI_STATUS
 prepare_kernel(struct hagfish_config *cfg) {
     EFI_STATUS status;
     size_t i;
@@ -291,14 +413,6 @@ prepare_kernel(struct hagfish_config *cfg) {
                              cfg->kernel->image_size);
     if(!img_elf) {
         DebugPrint(DEBUG_ERROR, "elf_memory: %a\n", elf_errmsg(elf_errno()));
-        return EFI_LOAD_ERROR;
-    }
-
-    size_t n_scn;
-    status= elf_getshdrnum(img_elf, &n_scn);
-    if(status) {
-        DebugPrint(DEBUG_ERROR, "elf_getshdrnum: %a\n",
-                   elf_errmsg(elf_errno()));
         return EFI_LOAD_ERROR;
     }
 
@@ -410,6 +524,12 @@ prepare_kernel(struct hagfish_config *cfg) {
         }
     }
 
+    status= relocate_elf(cfg, img_elf, phdr, phnum);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Relocation failed.\n");
+        return EFI_LOAD_ERROR;
+    }
+
     if(!found_entry_point) {
         DebugPrint(DEBUG_ERROR,
                    "Kernel entry point wasn't in any loaded segment.\n");
@@ -425,7 +545,7 @@ prepare_kernel(struct hagfish_config *cfg) {
         return EFI_OUT_OF_RESOURCES;
     }
 
-    DebugPrint(DEBUG_LOADFILE,
+    DebugPrint(DEBUG_INFO,
                "Relocated entry point is %p, stack at %p\n",
                cfg->kernel_entry, cfg->kernel_stack);
 
