@@ -115,7 +115,8 @@ load_component(struct component_config *cmp, const char *buf,
  * preallocated, but left empty until all allocations are finished. */
 void *
 create_multiboot_info(struct hagfish_config *cfg,
-                      EFI_PXE_BASE_CODE_PROTOCOL *pxe) {
+                      EFI_PXE_BASE_CODE_PROTOCOL *pxe,
+                      Elf *elf, size_t shnum) {
     UINTN size, npages;
     struct component_config *cmp;
     void *cursor;
@@ -139,13 +140,9 @@ create_multiboot_info(struct hagfish_config *cfg,
         size+= sizeof(struct multiboot_tag_new_acpi)
              + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
-/* XXX */
-#if 0
     /* ELF section headers */
     size+= sizeof(struct multiboot_tag_elf_sections)
-         + n_scn * sizeof(Elf64_Shdr);
-#endif
-/* XXX */
+         + shnum * sizeof(Elf64_Shdr);
     /* Kernel module tag, including command line and ELF image */
     size+= sizeof(struct multiboot_tag_module_64)
          + cfg->kernel->args_len+1 + cfg->kernel->image_size;
@@ -234,7 +231,28 @@ create_multiboot_info(struct hagfish_config *cfg,
         cursor+= sizeof(struct multiboot_tag_old_acpi)
                + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
-    /* XXX - Add the ELF section headers. */
+    /* Add the ELF section headers. */
+    {
+        struct multiboot_tag_elf_sections *sections=
+            (struct multiboot_tag_elf_sections *)cursor;
+
+        size_t shndx;
+        if(elf_getshdrstrndx(elf, &shndx)) {
+            DebugPrint(DEBUG_ERROR, "elf_getshdrstrndx: %a\n",
+                       elf_errmsg(elf_errno()));
+            return NULL;
+        }
+
+        sections->type= MULTIBOOT_TAG_TYPE_ELF_SECTIONS;
+        sections->size= sizeof(struct multiboot_tag_elf_sections)
+                 + shnum * sizeof(Elf64_Shdr); 
+        sections->num= shnum;
+        sections->entsize= sizeof(Elf64_Shdr);
+        sections->shndx= shndx;
+
+        cursor+= sizeof(struct multiboot_tag_elf_sections)
+               + shnum * sizeof(Elf64_Shdr);
+    }
     /* Add the kernel module. */
     {
         struct multiboot_tag_module_64 *kernel=
@@ -284,21 +302,14 @@ create_multiboot_info(struct hagfish_config *cfg,
 
 EFI_STATUS
 relocate_elf(struct hagfish_config *cfg, Elf *elf,
-             Elf64_Phdr *phdr, size_t phnum) {
+             Elf64_Phdr *phdr, size_t phnum, size_t shnum) {
     EFI_STATUS status;
-    size_t n_scn, i;
+    size_t i;
 
     DebugPrint(DEBUG_INFO, "Relocating kernel image.\n");
 
-    status= elf_getshdrnum(elf, &n_scn);
-    if(status) {
-        DebugPrint(DEBUG_ERROR, "elf_getshdrnum: %a\n",
-                   elf_errmsg(elf_errno()));
-        return EFI_LOAD_ERROR;
-    }
-
     /* Search for relocaton sections. */
-    for(i= 0; i < n_scn; i++) {
+    for(i= 0; i < shnum; i++) {
         Elf_Scn *scn= elf_getscn(elf, i);
         if(!scn) {
             DebugPrint(DEBUG_ERROR, "elf_getscn: %a\n",
@@ -405,7 +416,7 @@ relocate_elf(struct hagfish_config *cfg, Elf *elf,
 }
 
 EFI_STATUS
-prepare_kernel(struct hagfish_config *cfg) {
+prepare_kernel(struct hagfish_config *cfg, EFI_PXE_BASE_CODE_PROTOCOL *pxe) {
     EFI_STATUS status;
     size_t i;
 
@@ -525,7 +536,15 @@ prepare_kernel(struct hagfish_config *cfg) {
         }
     }
 
-    status= relocate_elf(cfg, img_elf, phdr, phnum);
+    size_t shnum;
+    status= elf_getshdrnum(img_elf, &shnum);
+    if(status) {
+        DebugPrint(DEBUG_ERROR, "elf_getshdrnum: %a\n",
+                   elf_errmsg(elf_errno()));
+        return EFI_LOAD_ERROR;
+    }
+
+    status= relocate_elf(cfg, img_elf, phdr, phnum, shnum);
     if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Relocation failed.\n");
         return EFI_LOAD_ERROR;
@@ -549,6 +568,12 @@ prepare_kernel(struct hagfish_config *cfg) {
     DebugPrint(DEBUG_INFO,
                "Relocated entry point is %p, stack at %p\n",
                cfg->kernel_entry, cfg->kernel_stack);
+
+    /* Create the multiboot header. */
+    if(!create_multiboot_info(cfg, pxe, img_elf, shnum)) {
+        DebugPrint(DEBUG_ERROR, "Failed to create multiboot structure.\n");
+        return EFI_SUCCESS;
+    }
 
     /* Finished with the kernel ELF. */
     elf_end(img_elf);
@@ -806,22 +831,6 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     }
     DebugPrint(DEBUG_INFO, "].\n");
 
-    /* Create the multiboot header. */
-    if(!create_multiboot_info(cfg, pxe)) {
-        DebugPrint(DEBUG_ERROR, "Failed to create multiboot structure.\n");
-        return EFI_SUCCESS;
-    }
-
-    /* Finished with PXE. */
-    status= pxe_done(hag_image);
-    if(EFI_ERROR(status)) return EFI_SUCCESS;
-    /* pxe is now invalid. */
-
-    /* Finished with the loaded image protocol. */
-    status= image_done();
-    if(EFI_ERROR(status)) return EFI_SUCCESS;
-    /* hag_image is now invalid. */
-
     /* Print out the discovered RAM regions */
     status= update_ram_regions(cfg);
     if(EFI_ERROR(status)) {
@@ -838,11 +847,21 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     }
 
     /* Load the CPU driver from its ELF image, and relocate it. */
-    status= prepare_kernel(cfg);
+    status= prepare_kernel(cfg, pxe);
     if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Failed to prepare CPU driver.\n");
         return EFI_SUCCESS;
     }
+
+    /* Finished with PXE. */
+    status= pxe_done(hag_image);
+    if(EFI_ERROR(status)) return EFI_SUCCESS;
+    /* pxe is now invalid. */
+
+    /* Finished with the loaded image protocol. */
+    status= image_done();
+    if(EFI_ERROR(status)) return EFI_SUCCESS;
+    /* hag_image is now invalid. */
 
     status= arch_probe();
     if(EFI_ERROR(status)) return EFI_SUCCESS;
