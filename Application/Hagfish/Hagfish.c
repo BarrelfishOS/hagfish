@@ -72,8 +72,9 @@ load_component(struct component_config *cmp, const char *buf,
     }
     ntstring(path, buf + cmp->path_start, cmp->path_len);
 
+    DebugPrint(DEBUG_INFO, "%a", path);
+
     /* Get the file size. */
-    DebugPrint(DEBUG_LOADFILE, "Loading \"%a\"...", path);
     status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
                        FALSE, (UINT64 *)&cmp->image_size, NULL, server_ip,
                        (UINT8 *)path, NULL, TRUE);
@@ -782,24 +783,28 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     if(!cfg) return EFI_SUCCESS;
 
     /* Load the kernel. */
-    DebugPrint(DEBUG_INFO, "Loading the kernel.\n");
+    DebugPrint(DEBUG_INFO, "Loading the kernel [");
     if(!load_component(cfg->kernel, cfg->buf, pxe, &server_ip)) {
-        DebugPrint(DEBUG_ERROR, "Failed to load the kernel.\n");
+        DebugPrint(DEBUG_ERROR, "\nFailed to load the kernel.\n");
         return EFI_SUCCESS;
     }
+    DebugPrint(DEBUG_INFO, "].\n");
 
     /* Load the modules */
-    DebugPrint(DEBUG_INFO, "Loading modules.\n");
+    DebugPrint(DEBUG_INFO, "Loading init images [");
     {
         struct component_config *cmp;
 
         for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
+            if(cmp != cfg->first_module) DebugPrint(DEBUG_INFO, ", ");
+
             if(!load_component(cmp, cfg->buf, pxe, &server_ip)) {
                 DebugPrint(DEBUG_ERROR, "Failed to load module.\n");
             return EFI_SUCCESS;
             }
         }
     }
+    DebugPrint(DEBUG_INFO, "].\n");
 
     /* Create the multiboot header. */
     if(!create_multiboot_info(cfg, pxe)) {
