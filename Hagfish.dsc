@@ -1,16 +1,11 @@
-## @file Hagfish.dsc
 #
-# Copyright (c) 2015, ETH Zürich. All rights reserved.
+# Copyright (c) 2015, ETH Zuerich.
+# All rights reserved.
 #
-#    This program and the accompanying materials
-#    are licensed and made available under the terms and conditions of the BSD License
-#    which accompanies this distribution. The full text of the license may be found at
-#    http://opensource.org/licenses/bsd-license.php
+# This file is distributed under the terms in the attached LICENSE file.
+# If you do not find this file, copies can be found by writing to:
+# ETH Zurich D-INFK, Haldeneggsteig 4, CH-8092 Zurich. Attn: Systems Group.
 #
-#    THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
-#    WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
-#
-##
 
 [Defines]
     DSC_SPECIFICATION              = 0x00010005
