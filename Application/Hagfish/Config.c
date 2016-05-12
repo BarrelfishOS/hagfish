@@ -285,8 +285,12 @@ free_bookkeeping(struct hagfish_config *cfg) {
     if(cfg->kernel_segments) free_region_list(cfg->kernel_segments);
 
     /* All non-kernel components. */
-    struct component_config *cmp;
-    for(cmp= cfg->first_module; cmp; cmp= cmp->next) free(cmp);
 
+    struct component_config *cmp, *next;
+    for(cmp = cfg->first_module; cmp; cmp = next) {
+        next = cmp->next;
+        free(cmp);
+    }
+    cfg->first_module = NULL;
     free(cfg);
 }
