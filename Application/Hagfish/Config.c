@@ -292,5 +292,4 @@ free_bookkeeping(struct hagfish_config *cfg) {
         free(cmp);
     }
     cfg->first_module = NULL;
-    free(cfg);
 }
