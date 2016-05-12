@@ -534,7 +534,7 @@ prepare_kernel(struct hagfish_config *cfg, EFI_PXE_BASE_CODE_PROTOCOL *pxe) {
         memcpy(p_buf, cfg->kernel->image_address + phdr[i].p_offset,
                phdr[i].p_filesz);
 
-        if(ehdr->e_entry <= phdr[i].p_vaddr &&
+        if(ehdr->e_entry >= phdr[i].p_vaddr &&
            ehdr->e_entry - phdr[i].p_vaddr < phdr[i].p_memsz) {
             entry_point=
                 (cpu_driver_entry)(p_buf + (ehdr->e_entry - phdr[i].p_vaddr));
