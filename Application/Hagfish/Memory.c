@@ -190,12 +190,16 @@ get_region_list(struct hagfish_config *cfg) {
         int merge_left= j > 0 &&
             list->regions[j-1].base +
             list->regions[j-1].npages * PAGE_4k == 
-            desc->PhysicalStart;
+            desc->PhysicalStart &&
+            list->regions[j-1].efi_type == desc->Type &&
+            list->regions[j-1].efi_attributes == desc->Attribute;
         /* We're plugging the hole before an existing region.  This should be
          * rare, but we'll handle it. */
         int merge_right= j < list->nregions &&
             desc->PhysicalStart + desc->NumberOfPages * PAGE_4k ==
-            list->regions[j].base;
+            list->regions[j].base &&
+            list->regions[j].efi_type == desc->Type &&
+            list->regions[j].efi_attributes == desc->Attribute;
 
         if(merge_left) {
             if(merge_right) {
