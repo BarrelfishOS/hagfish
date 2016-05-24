@@ -234,7 +234,7 @@ create_multiboot_info(struct hagfish_config *cfg,
         memcpy(&acpi->rsdp, cfg->acpi2_header,
                sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
-        cursor+= sizeof(struct multiboot_tag_old_acpi)
+        cursor+= sizeof(struct multiboot_tag_new_acpi)
                + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
     }
     /* Add the ELF section headers. */
