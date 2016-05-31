@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 /* EDK Headers */
 #include <Uefi.h>
@@ -30,6 +31,7 @@
 #include <Library/UefiApplicationEntryPoint.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
+#include <Library/ShellLib.h>
 
 #include <Protocol/LoadedImage.h>
 #include <Protocol/LoadFile.h>
@@ -47,6 +49,7 @@
 #include <Hardware.h>
 #include <Memory.h>
 #include <Util.h>
+#include <Loader.h>
 
 #define roundpage(x) COVER((x), PAGE_4k)
 
@@ -64,8 +67,8 @@ ntstring(char *dest, const char *src, size_t len) {
 /* Load a component (kernel or module) over TFTP, and fill in the relevant
  * fields in the configuration structure. */
 int
-load_component(struct component_config *cmp, const char *buf,
-               EFI_PXE_BASE_CODE_PROTOCOL *pxe, EFI_IP_ADDRESS *server_ip) {
+load_component(struct hagfish_loader *loader, struct component_config *cmp,
+        const char *buf) {
     EFI_STATUS status;
 
     ASSERT(cmp);
@@ -81,12 +84,9 @@ load_component(struct component_config *cmp, const char *buf,
     DebugPrint(DEBUG_INFO, "%a", path);
 
     /* Get the file size. */
-    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
-                       FALSE, (UINT64 *)&cmp->image_size, NULL, server_ip,
-                       (UINT8 *)path, NULL, TRUE);
+    status = loader->size_fn(loader, path, (UINTN *) &cmp->image_size);
     if(status != EFI_SUCCESS) {
-        DebugPrint(DEBUG_ERROR, "\nMtftp: %r, %a\n",
-                   status, pxe->Mode->TftpError.ErrorString);
+        DebugPrint(DEBUG_ERROR, "\nfile size: %r\n", status);
         return EFI_SUCCESS;
     }
 
@@ -100,13 +100,9 @@ load_component(struct component_config *cmp, const char *buf,
     }
 
     /* Load the image. */
-    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_READ_FILE,
-                       cmp->image_address, FALSE, (UINT64 *)&cmp->image_size,
-                       NULL, server_ip, (UINT8 *)path, NULL, FALSE);
+    status = loader->read_fn(loader, path, (UINTN *) &cmp->image_size, cmp->image_address);
     if(status != EFI_SUCCESS) {
-        DebugPrint(DEBUG_ERROR,
-                   "\nMtftp: %r, %a\n",
-                   status, pxe->Mode->TftpError.ErrorString);
+        DebugPrint(DEBUG_ERROR, "\nread file: %r\n", status);
         return EFI_SUCCESS;
     }
 
@@ -121,7 +117,7 @@ load_component(struct component_config *cmp, const char *buf,
  * preallocated, but left empty until all allocations are finished. */
 void *
 create_multiboot_info(struct hagfish_config *cfg,
-                      EFI_PXE_BASE_CODE_PROTOCOL *pxe,
+                      struct hagfish_loader *loader,
                       Elf *elf, size_t shnum) {
     UINTN size, npages;
     struct component_config *cmp;
@@ -197,17 +193,7 @@ create_multiboot_info(struct hagfish_config *cfg,
     }
     /* Add the DHCP ack packet. */
     {
-        struct multiboot_tag_network *dhcp=
-            (struct multiboot_tag_network *)cursor;
-
-        dhcp->type= MULTIBOOT_TAG_TYPE_NETWORK;
-        dhcp->size= sizeof(struct multiboot_tag_network)
-                  + sizeof(EFI_PXE_BASE_CODE_PACKET);
-        memcpy(&dhcp->dhcpack, &pxe->Mode->DhcpAck,
-               sizeof(EFI_PXE_BASE_CODE_PACKET));
-
-        cursor+= sizeof(struct multiboot_tag_network)
-               + sizeof(EFI_PXE_BASE_CODE_PACKET);
+        loader->prepare_multiboot_fn(loader, &cursor);
     }
     /* Add the ACPI 1.0 header */
     if(cfg->acpi1_header) {
@@ -422,7 +408,7 @@ relocate_elf(struct hagfish_config *cfg, Elf *elf,
 }
 
 EFI_STATUS
-prepare_kernel(struct hagfish_config *cfg, EFI_PXE_BASE_CODE_PROTOCOL *pxe) {
+prepare_kernel(struct hagfish_config *cfg, struct hagfish_loader *loader) {
     EFI_STATUS status;
     size_t i;
 
@@ -576,7 +562,7 @@ prepare_kernel(struct hagfish_config *cfg, EFI_PXE_BASE_CODE_PROTOCOL *pxe) {
                cfg->kernel_entry, cfg->kernel_stack);
 
     /* Create the multiboot header. */
-    if(!create_multiboot_info(cfg, pxe, img_elf, shnum)) {
+    if(!create_multiboot_info(cfg, loader, img_elf, shnum)) {
         DebugPrint(DEBUG_ERROR, "Failed to create multiboot structure.\n");
         return EFI_SUCCESS;
     }
@@ -647,105 +633,26 @@ image_done(void) {
     return EFI_SUCCESS;
 }
 
-EFI_PXE_BASE_CODE_PROTOCOL *
-pxe_loader(EFI_LOADED_IMAGE_PROTOCOL *image) {
-    EFI_PXE_BASE_CODE_PROTOCOL *pxe;
-    EFI_STATUS status;
-
-    status= gST->BootServices->OpenProtocol(
-                image->DeviceHandle, &gEfiPxeBaseCodeProtocolGuid,
-                (void **)&pxe, gImageHandle, NULL,
-                EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
-
-    if(EFI_ERROR(status)) {
-        AsciiPrint("OpenProtocol: %r\n", status);
-        return NULL;
-    }
-
-    return pxe;
-}
-
-EFI_STATUS
-pxe_done(EFI_LOADED_IMAGE_PROTOCOL *image) {
-    EFI_STATUS status;
-
-    status= gST->BootServices->CloseProtocol(
-                image->DeviceHandle, &gEfiPxeBaseCodeProtocolGuid,
-                gImageHandle, NULL);
-
-    if(EFI_ERROR(status)) {
-        DebugPrint(DEBUG_ERROR, "CloseProtocol: %r\n", status);
-        return status;
-    }
-
-    return EFI_SUCCESS;
-}
-
-/* Check that the PXE client is in a usable state, with networking configured,
- * and find both our and the server's IP addresses. */
-EFI_STATUS
-net_config(EFI_PXE_BASE_CODE_PROTOCOL *pxe,
-           EFI_IP_ADDRESS *my_ip,
-           EFI_IP_ADDRESS *server_ip) {
-    DebugPrint(DEBUG_INFO, "PXE loader at %p, revision %x, %a\n",
-               (UINT64)pxe,
-               pxe->Revision,
-               pxe->Mode->Started ? "running" : "stopped");
-
-    if(!pxe->Mode->DhcpAckReceived) {
-        DebugPrint(DEBUG_ERROR, "DHCP hasn't completed.\n");
-        return EFI_NOT_READY;
-    }
-
-    if(pxe->Mode->UsingIpv6) {
-        DebugPrint(DEBUG_ERROR, "PXE using IPv6, I can't handle that.\n");
-        return EFI_LOAD_ERROR;
-    }
-
-    /* Grab the network details. */
-    memcpy(my_ip, &pxe->Mode->StationIp, sizeof(EFI_IPv4_ADDRESS));
-    DebugPrint(DEBUG_NET,
-               "My IP address is %d.%d.%d.%d\n",
-               my_ip->v4.Addr[0], my_ip->v4.Addr[1],
-               my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
-
-    /* The octets in the DHCP packet are byte-aligned, but those in an
-     * EFI_IP_ADDRESS are word-aligned, so we've got to copy by hand. */
-    size_t i;
-    for(i= 0; i < 4; i++)
-        server_ip->v4.Addr[i]= pxe->Mode->DhcpAck.Dhcpv4.BootpSiAddr[i];
-    DebugPrint(DEBUG_NET,
-               "BOOTP server's IP address is %d.%d.%d.%d\n",
-               server_ip->v4.Addr[0], server_ip->v4.Addr[1],
-               server_ip->v4.Addr[2], server_ip->v4.Addr[3]);
-
-    return EFI_SUCCESS;
-}
-
 struct hagfish_config *
-load_config(EFI_PXE_BASE_CODE_PROTOCOL *pxe,
-            EFI_IP_ADDRESS *my_ip,
-            EFI_IP_ADDRESS *server_ip) {
+load_config(struct hagfish_loader *loader) {
     EFI_STATUS status;
 
     /* Load the host-specific configuration file. */
     char cfg_filename[256];
     UINTN cfg_size;
-    snprintf(cfg_filename, 256, hagfish_config_fmt, 
-             my_ip->v4.Addr[0], my_ip->v4.Addr[1],
-             my_ip->v4.Addr[2], my_ip->v4.Addr[3]);
-
+    status = loader->config_file_name_fn(loader, cfg_filename, 256);
+    if (EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "config file name failed: %r\n", status);
+        return NULL;
+    }
     DebugPrint(DEBUG_LOADFILE, "Loading \"%a\"\n", cfg_filename);
 
     /* Get the file size.  Note that even though this call doesn't touch the
      * supplied buffer (argument 3), it still fails if it's null.  Thus the
      * nonsense parameter. */
-    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE, (void *)0x1,
-                       FALSE, &cfg_size, NULL, server_ip,
-                       (UINT8 *)cfg_filename, NULL, TRUE);
+    status = loader->size_fn(loader, cfg_filename, &cfg_size);
     if(EFI_ERROR(status)) {
-        DebugPrint(DEBUG_ERROR, "Mtftp: %r, %a\n",
-                   status, pxe->Mode->TftpError.ErrorString);
+        DebugPrint(DEBUG_ERROR, "file size: %r\n", status);
         return NULL;
     }
     DebugPrint(DEBUG_LOADFILE, "File \"%a\" has size %dB\n",
@@ -757,12 +664,9 @@ load_config(EFI_PXE_BASE_CODE_PROTOCOL *pxe,
         return NULL;
     }
 
-    status= pxe->Mtftp(pxe, EFI_PXE_BASE_CODE_TFTP_READ_FILE, cfg_buffer,
-                       FALSE, &cfg_size, NULL, server_ip,
-                       (UINT8 *)cfg_filename, NULL, FALSE);
+    status = loader->read_fn(loader, cfg_filename, &cfg_size, cfg_buffer);
     if(EFI_ERROR(status)) {
-        DebugPrint(DEBUG_ERROR, "Mtftp: %r, %a\n",
-                   status, pxe->Mode->TftpError.ErrorString);
+        DebugPrint(DEBUG_ERROR, "read file: %r\n", status);
         return NULL;
     }
     DebugPrint(DEBUG_LOADFILE, "Loaded config at [%p-%p]\n",
@@ -781,12 +685,48 @@ load_config(EFI_PXE_BASE_CODE_PROTOCOL *pxe,
 }
 
 EFI_STATUS
+configure_loader(struct hagfish_loader *loader, EFI_HANDLE ImageHandle,
+        EFI_SYSTEM_TABLE *SystemTable, EFI_LOADED_IMAGE_PROTOCOL *hag_image) {
+    EFI_STATUS status;
+    EFI_SHELL_PARAMETERS_PROTOCOL *shellParameters;
+
+    // try to obtain handle to Shell
+    status = SystemTable->BootServices->OpenProtocol(ImageHandle,
+            &gEfiShellParametersProtocolGuid, (VOID **) &shellParameters,
+            ImageHandle,
+            NULL,
+            EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+    loader->imageHandle = ImageHandle;
+    loader->systemTable = SystemTable;
+    loader->hagfishImage = hag_image;
+
+    if (EFI_ERROR(status)) {
+        // could not connect to shell.
+        DebugPrint(DEBUG_INFO, "Could not connect to shell, assuming PXE boot.\n");
+        status = hagfish_loader_pxe_init(loader);
+    } else if (shellParameters->Argc == 2) {
+        DebugPrint(DEBUG_INFO, "Loading %s from file system.\n", shellParameters->Argv[1]);
+        status = hagfish_loader_fs_init(loader, shellParameters->Argv[1]);
+        DebugPrint(DEBUG_ERROR, "h %s:%d\n", __FUNCTION__, __LINE__);
+    } else {
+        DebugPrint(DEBUG_INFO, "Not enough parameters.\n");
+        return EFI_LOAD_ERROR;
+    }
+    return status;
+}
+
+
+EFI_STATUS
 UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     EFI_STATUS status;
     EFI_LOADED_IMAGE_PROTOCOL *hag_image;
-    EFI_PXE_BASE_CODE_PROTOCOL *pxe;
-    EFI_IP_ADDRESS server_ip, my_ip;
     int i;
+
+    status = ShellInitialize();
+    if (EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Failed to initialize ShellLib, aborting.\n");
+        return EFI_SUCCESS;
+    }
 
     AsciiPrint("Hagfish UEFI loader starting\n");
 
@@ -799,23 +739,22 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     DebugPrint(DEBUG_INFO, "Hagfish loaded at %p, size %dB, by handle %p\n",
         hag_image->ImageBase, hag_image->ImageSize, hag_image->DeviceHandle);
 
-    /* Find the PXE service that loaded us. */
-    DebugPrint(DEBUG_INFO,
-               "Connecting to the PXE service that loaded me.\n");
-    pxe= pxe_loader(hag_image);
-    if(!pxe) return EFI_SUCCESS;
+    struct hagfish_loader loader;
+    memset(&loader, 0, sizeof(loader));
 
-    /* Check network status. */
-    status= net_config(pxe, &my_ip, &server_ip);
-    if(EFI_ERROR(status)) return EFI_SUCCESS;
+    status = configure_loader(&loader, ImageHandle, SystemTable, hag_image);
+    if (EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Failed to initialize loader: %r\n", status);
+        return EFI_SUCCESS;
+    }
 
     /* Load and parse the configuration file. */
-    struct hagfish_config *cfg= load_config(pxe, &my_ip, &server_ip);
+    struct hagfish_config *cfg= load_config(&loader);
     if(!cfg) return EFI_SUCCESS;
 
     /* Load the kernel. */
     DebugPrint(DEBUG_INFO, "Loading the kernel [");
-    if(!load_component(cfg->kernel, cfg->buf, pxe, &server_ip)) {
+    if(!load_component(&loader, cfg->kernel, cfg->buf)) {
         DebugPrint(DEBUG_ERROR, "\nFailed to load the kernel.\n");
         return EFI_SUCCESS;
     }
@@ -829,9 +768,9 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
             if(cmp != cfg->first_module) DebugPrint(DEBUG_INFO, ", ");
 
-            if(!load_component(cmp, cfg->buf, pxe, &server_ip)) {
+            if(!load_component(&loader, cmp, cfg->buf)) {
                 DebugPrint(DEBUG_ERROR, "Failed to load module.\n");
-            return EFI_SUCCESS;
+                return EFI_SUCCESS;
             }
         }
     }
@@ -853,16 +792,16 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     }
 
     /* Load the CPU driver from its ELF image, and relocate it. */
-    status= prepare_kernel(cfg, pxe);
+    status= prepare_kernel(cfg, &loader);
     if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Failed to prepare CPU driver.\n");
         return EFI_SUCCESS;
     }
 
-    /* Finished with PXE. */
-    status= pxe_done(hag_image);
+    /* Finished with loading. */
+    status= loader.done_fn(&loader);
     if(EFI_ERROR(status)) return EFI_SUCCESS;
-    /* pxe is now invalid. */
+    /* loader is now invalid. */
 
     /* Finished with the loaded image protocol. */
     status= image_done();

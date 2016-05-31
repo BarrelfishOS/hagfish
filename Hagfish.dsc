@@ -68,6 +68,7 @@
     UefiHiiServicesLib|MdeModulePkg/Library/UefiHiiServicesLib/UefiHiiServicesLib.inf
     UefiRuntimeLib|MdePkg/Library/UefiRuntimeLib/UefiRuntimeLib.inf
     UefiDriverEntryPoint|MdePkg/Library/UefiDriverEntryPoint/UefiDriverEntryPoint.inf
+    ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
 
 [LibraryClasses.AARCH64]
     ArmLib|ArmPkg/Library/ArmLib/AArch64/AArch64Lib.inf

@@ -20,6 +20,7 @@
     Config.c
     Hagfish.c
     Memory.c
+    Loader.c
 
 [Sources.AARCH64]
     AArch64/Hardware.c
@@ -30,6 +31,7 @@
     Hagfish/Hagfish.dec
     MdePkg/MdePkg.dec
     MdeModulePkg/MdeModulePkg.dec
+    ShellPkg/ShellPkg.dec
 
 [LibraryClasses]
     ArmLib
@@ -49,3 +51,4 @@
     gEfiPxeBaseCodeProtocolGuid
     gEfiLoadFileProtocolGuid
     gEfiLoadFile2ProtocolGuid
+    gEfiShellParametersProtocolGuid
