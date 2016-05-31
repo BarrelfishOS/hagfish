@@ -266,7 +266,7 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         kernel->type= MULTIBOOT_TAG_TYPE_MODULE_64;
         kernel->size= sizeof(struct multiboot_tag_module_64)
-                    + cfg->kernel->args_len+1;
+                    + cfg->kernel->args_len+1  + cfg->kernel->image_size;
         kernel->mod_start=
             (multiboot_uint64_t)cfg->kernel->image_address;
         kernel->mod_end=
@@ -286,7 +286,7 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         module->type= MULTIBOOT_TAG_TYPE_MODULE_64;
         module->size= sizeof(struct multiboot_tag_module_64)
-                    + cmp->args_len+1;
+                    + cmp->args_len+1 + cmp->image_size;
         module->mod_start=
             (multiboot_uint64_t)cmp->image_address;
         module->mod_end=
