@@ -1,3 +1,14 @@
+/*
+ * Copyright (c) 2016, ETH Zurich.
+ * Copyright (c) 2016, Hewlett Packard Enterprise Development LP.
+ * All rights reserved.
+ *
+ * This file is distributed under the terms in the attached LICENSE file.
+ * If you do not find this file, copies can be found by writing to:
+ * ETH Zurich D-INFK, Universitaetstr. 6, CH-8092 Zurich. Attn: Systems Group.
+ */
+
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -196,7 +207,7 @@ EFI_STATUS fs_size_fn(struct hagfish_loader *loader, char *path, UINT64 *size) {
     EFI_STATUS status;
     SHELL_FILE_HANDLE file;
 
-    DebugPrint(DEBUG_ERROR, "fs_size_fn(*path=%a, *size=%d): %a:%d\n", path, *size,  __FILE__, __LINE__);
+//    DebugPrint(DEBUG_ERROR, "fs_size_fn(*path=%a, *size=%d): %a:%d\n", path, *size,  __FILE__, __LINE__);
 
     size_t path_len = strlen(path);
     CHAR16 path_unicode[path_len];
@@ -242,7 +253,7 @@ EFI_STATUS fs_read_fn(struct hagfish_loader *loader, char *path, UINT64 *size,
     EFI_STATUS status;
     SHELL_FILE_HANDLE file;
 
-    DebugPrint(DEBUG_ERROR, "fs_read_fn(*path=%a, *size=%d): %a:%d\n", path, *size,  __FILE__, __LINE__);
+//    DebugPrint(DEBUG_ERROR, "fs_read_fn(*path=%a, *size=%d): %a:%d\n", path, *size,  __FILE__, __LINE__);
 
     size_t path_len = strlen(path);
     CHAR16 path_unicode[path_len];
@@ -286,11 +297,12 @@ EFI_STATUS fs_multiboot_perpare_fn(struct hagfish_loader *loader, void **cursor)
 
 EFI_STATUS fs_config_file_name_fn(struct hagfish_loader *loader,
         char *config_file_name, UINT64 size) {
-    DebugPrint(DEBUG_ERROR, "here: %a:%a:%d\n", __FILE__, __FUNCTION__, __LINE__);
-    // TODO: Get this from parameter!
     memset(config_file_name, 0, size);
-    snprintf(config_file_name, size, "hagfish.cfg");
-    DebugPrint(DEBUG_ERROR, "here: %a:%a:%d config_file_name=%a\n", __FILE__, __FUNCTION__, __LINE__, config_file_name);
+    if (size < StrLen(loader->d.fs.image)) {
+        DebugPrint(DEBUG_ERROR, "file name buffer too short, fix code!\n");
+        return EFI_LOAD_ERROR;
+    }
+    UnicodeStrToAsciiStr(loader->d.fs.image, config_file_name);
     return EFI_SUCCESS;
 }
 
@@ -300,13 +312,13 @@ EFI_STATUS fs_done_fn(struct hagfish_loader *loader) {
 
 EFI_STATUS
 hagfish_loader_fs_init(struct hagfish_loader *loader, CHAR16 *image) {
-    DebugPrint(DEBUG_ERROR, "here: %a:%d\n", __FILE__, __LINE__);
     loader->done_fn = &fs_done_fn;
     loader->prepare_multiboot_fn = &fs_multiboot_perpare_fn;
     loader->read_fn = &fs_read_fn;
     loader->size_fn = &fs_size_fn;
     loader->config_file_name_fn = &fs_config_file_name_fn;
     loader->type = HAGFISH_LOADER_FS;
+    loader->d.fs.image = image;
 
     return EFI_SUCCESS;
 }

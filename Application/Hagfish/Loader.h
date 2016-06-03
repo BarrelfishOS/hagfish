@@ -29,7 +29,7 @@ struct hagfish_loader_pxe {
 };
 
 struct hagfish_loader_fs {
-
+    CHAR16* image;
 };
 
 struct hagfish_loader {
