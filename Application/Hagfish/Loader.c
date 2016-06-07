@@ -207,8 +207,6 @@ EFI_STATUS fs_size_fn(struct hagfish_loader *loader, char *path, UINT64 *size) {
     EFI_STATUS status;
     SHELL_FILE_HANDLE file;
 
-//    DebugPrint(DEBUG_ERROR, "fs_size_fn(*path=%a, *size=%d): %a:%d\n", path, *size,  __FILE__, __LINE__);
-
     size_t path_len = strlen(path);
     CHAR16 path_unicode[path_len];
     AsciiStrToUnicodeStr(path, path_unicode);
@@ -219,7 +217,6 @@ EFI_STATUS fs_size_fn(struct hagfish_loader *loader, char *path, UINT64 *size) {
     }
 
     CHAR16 *found_file = ShellFindFilePath(path_unicode);
-    DebugPrint(DEBUG_INFO, "ShellFindFilePath found: %s from %s\n", found_file, path_unicode);
 
     if (!found_file) {
         DebugPrint(DEBUG_INFO, "File not found: %s\n", path_unicode);
@@ -252,8 +249,6 @@ EFI_STATUS fs_read_fn(struct hagfish_loader *loader, char *path, UINT64 *size,
         UINT8 *buffer) {
     EFI_STATUS status;
     SHELL_FILE_HANDLE file;
-
-//    DebugPrint(DEBUG_ERROR, "fs_read_fn(*path=%a, *size=%d): %a:%d\n", path, *size,  __FILE__, __LINE__);
 
     size_t path_len = strlen(path);
     CHAR16 path_unicode[path_len];

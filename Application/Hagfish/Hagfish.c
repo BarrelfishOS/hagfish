@@ -708,7 +708,6 @@ configure_loader(struct hagfish_loader *loader, EFI_HANDLE ImageHandle,
     } else if (shellParameters->Argc == 2) {
         DebugPrint(DEBUG_INFO, "Loading %s from file system.\n", shellParameters->Argv[1]);
         status = hagfish_loader_fs_init(loader, shellParameters->Argv[1]);
-        DebugPrint(DEBUG_ERROR, "h %s:%d\n", __FUNCTION__, __LINE__);
     } else {
         DebugPrint(DEBUG_INFO, "Not enough parameters.\n");
         return EFI_LOAD_ERROR;
