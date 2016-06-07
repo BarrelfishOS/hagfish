@@ -70,6 +70,7 @@ dump_table(uint64_t vbase, uint64_t *table, size_t level) {
 }
 
 #define BLOCK_16G (ARMv8_HUGE_PAGE_SIZE * 16ULL)
+#define BLOCK_16G_MASK (ARMv8_HUGE_PAGE_SIZE * 16ULL)
 
 EFI_STATUS
 build_page_tables(struct hagfish_config *cfg) {
@@ -190,6 +191,57 @@ build_page_tables(struct hagfish_config *cfg) {
         /* A block. */
         desc->block_l1.mb0= 0;
         desc->block_l1.valid= 1;
+    }
+
+    size_t mmap_n_desc = mmap_size / mmap_d_size;
+    for (i = 0; i < mmap_n_desc; i++) {
+        EFI_MEMORY_DESCRIPTOR *desc = (EFI_MEMORY_DESCRIPTOR *) (mmap
+                + i * mmap_d_size);
+        /* We're only looking for MMIO. */
+        if (desc->Type == EfiMemoryMappedIO
+                || desc->Type == EfiMemoryMappedIOPortSpace) {
+            {
+                uint64_t base =
+                        ROUNDDOWN(desc->PhysicalStart,
+                                ARMv8_HUGE_PAGE_SIZE) / ARMv8_HUGE_PAGE_SIZE;
+                uint64_t end = COVER(
+                        desc->PhysicalStart + PAGE_4k * desc->NumberOfPages,
+                        ARMv8_HUGE_PAGE_SIZE);
+
+                DebugPrint(DEBUG_INFO, "MMIO region %p -> %p\n",
+                        base * ARMv8_HUGE_PAGE_SIZE,
+                        end * ARMv8_HUGE_PAGE_SIZE);
+
+                while (base < end) {
+                    size_t table_number = base >> ARMv8_BLOCK_BITS;
+                    size_t table_index = base & ARMv8_BLOCK_MASK;
+                    union aarch64_descriptor *desc =
+                            &cfg->tables->L1_tables[table_number][table_index];
+                    desc->block_l1.attrindex = 1;
+
+                    base++;
+                }
+            }
+            {
+                uint64_t base16G = ROUNDDOWN(desc->PhysicalStart, BLOCK_16G);
+                uint64_t end16G = ROUNDUP(desc->PhysicalStart + PAGE_4k * desc->NumberOfPages, BLOCK_16G);
+
+                DebugPrint(DEBUG_INFO, "Non-contiguous %p -> %p\n", base16G,
+                        end16G);
+
+                while (base16G < end16G) {
+                    size_t table_number = (base16G / ARMv8_HUGE_PAGE_SIZE)
+                            >> ARMv8_BLOCK_BITS;
+                    size_t table_index = (base16G / ARMv8_HUGE_PAGE_SIZE)
+                            & ARMv8_BLOCK_MASK;
+                    union aarch64_descriptor *desc =
+                            &cfg->tables->L1_tables[table_number][table_index];
+                    desc->block_l1.contiguous = 0;
+
+                    base16G += BLOCK_16G;
+                }
+            }
+        }
     }
 
     return EFI_SUCCESS;
