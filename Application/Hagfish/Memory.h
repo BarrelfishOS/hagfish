@@ -28,8 +28,6 @@ extern UINT32 mmap_d_ver;
 struct ram_region {
     uint64_t base;
     uint64_t npages;
-    uint64_t efi_type;
-    uint64_t efi_attributes;
 };
 
 struct region_list {
