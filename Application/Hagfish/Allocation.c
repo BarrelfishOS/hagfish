@@ -20,11 +20,11 @@
 void *
 allocate_pages(size_t n, EFI_MEMORY_TYPE type) {
     EFI_STATUS status;
-    EFI_PHYSICAL_ADDRESS memory = (1ULL << 32) - 1;
+    EFI_PHYSICAL_ADDRESS memory;
 
     if(n == 0) return NULL;
 
-    status = gBS->AllocatePages(AllocateMaxAddress, type, n, &memory);
+    status = gBS->AllocatePages(AllocateAnyPages, type, n, &memory);
     if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "AllocatePages: %r\n", status);
         return NULL;
