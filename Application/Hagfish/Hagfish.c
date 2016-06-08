@@ -842,6 +842,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     cfg->mmap_tag->size= sizeof(struct multiboot_tag_efi_mmap) + mmap_size;
     cfg->mmap_tag->descr_size= mmap_d_size;
     cfg->mmap_tag->descr_vers= mmap_d_ver;
+    memcpy(cfg->mmap_start, mmap, mmap_size);
 
     /* Exit EFI boot services. */
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
