@@ -701,16 +701,13 @@ configure_loader(struct hagfish_loader *loader, EFI_HANDLE ImageHandle,
     loader->systemTable = SystemTable;
     loader->hagfishImage = hag_image;
 
-    if (EFI_ERROR(status)) {
+    if (EFI_ERROR(status) || shellParameters->Argc != 2) {
         // could not connect to shell.
-        DebugPrint(DEBUG_INFO, "Could not connect to shell, assuming PXE boot.\n");
+        DebugPrint(DEBUG_INFO, "Could not connect to shell or not enough parameters, assuming PXE boot.\n");
         status = hagfish_loader_pxe_init(loader);
-    } else if (shellParameters->Argc == 2) {
-        DebugPrint(DEBUG_INFO, "Loading %s from file system.\n", shellParameters->Argv[1]);
-        status = hagfish_loader_fs_init(loader, shellParameters->Argv[1]);
     } else {
-        DebugPrint(DEBUG_INFO, "Not enough parameters.\n");
-        return EFI_LOAD_ERROR;
+        DebugPrint(DEBUG_INFO, "Loading configuration %s from file system.\n", shellParameters->Argv[1]);
+        status = hagfish_loader_fs_init(loader, shellParameters->Argv[1]);
     }
     return status;
 }
