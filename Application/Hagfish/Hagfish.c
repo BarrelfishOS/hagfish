@@ -687,21 +687,23 @@ load_config(struct hagfish_loader *loader) {
 
 EFI_STATUS
 configure_loader(struct hagfish_loader *loader, EFI_HANDLE ImageHandle,
-        EFI_SYSTEM_TABLE *SystemTable, EFI_LOADED_IMAGE_PROTOCOL *hag_image) {
+        EFI_SYSTEM_TABLE *SystemTable, EFI_LOADED_IMAGE_PROTOCOL *hag_image, int try_shell) {
     EFI_STATUS status;
     EFI_SHELL_PARAMETERS_PROTOCOL *shellParameters;
 
     // try to obtain handle to Shell
-    status = SystemTable->BootServices->OpenProtocol(ImageHandle,
-            &gEfiShellParametersProtocolGuid, (VOID **) &shellParameters,
-            ImageHandle,
-            NULL,
-            EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+    if (try_shell) {
+        status = SystemTable->BootServices->OpenProtocol(ImageHandle,
+                &gEfiShellParametersProtocolGuid, (VOID **) &shellParameters,
+                ImageHandle,
+                NULL,
+                EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+    }
     loader->imageHandle = ImageHandle;
     loader->systemTable = SystemTable;
     loader->hagfishImage = hag_image;
 
-    if (EFI_ERROR(status) || shellParameters->Argc != 2) {
+    if (!try_shell || EFI_ERROR(status) || shellParameters->Argc != 2) {
         // could not connect to shell.
         DebugPrint(DEBUG_INFO, "Could not connect to shell or not enough parameters, assuming PXE boot.\n");
         status = hagfish_loader_pxe_init(loader);
@@ -717,12 +719,16 @@ EFI_STATUS
 UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     EFI_STATUS status;
     EFI_LOADED_IMAGE_PROTOCOL *hag_image;
-    int i;
+    int i, try_shell;
+
+
 
     status = ShellInitialize();
     if (EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Failed to initialize ShellLib, aborting.\n");
-        return EFI_SUCCESS;
+        try_shell = 0;
+    } else {
+        try_shell = 1;
     }
 
     AsciiPrint("Hagfish UEFI loader starting\n");
@@ -739,7 +745,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     struct hagfish_loader loader;
     memset(&loader, 0, sizeof(loader));
 
-    status = configure_loader(&loader, ImageHandle, SystemTable, hag_image);
+    status = configure_loader(&loader, ImageHandle, SystemTable, hag_image, try_shell);
     if (EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Failed to initialize loader: %r\n", status);
         return EFI_SUCCESS;
