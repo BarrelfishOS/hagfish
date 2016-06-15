@@ -193,53 +193,60 @@ build_page_tables(struct hagfish_config *cfg) {
         desc->block_l1.valid= 1;
     }
 
+    uintptr_t last_non_contiguous_addr = 0;
+    uintptr_t last_device_base = 0;
+
     size_t mmap_n_desc = mmap_size / mmap_d_size;
     for (i = 0; i < mmap_n_desc; i++) {
-        EFI_MEMORY_DESCRIPTOR *desc = (EFI_MEMORY_DESCRIPTOR *) (mmap
-                + i * mmap_d_size);
+        EFI_MEMORY_DESCRIPTOR *desc = (void *) (mmap + i * mmap_d_size);
         /* We're only looking for MMIO. */
         if (desc->Type == EfiMemoryMappedIO
                 || desc->Type == EfiMemoryMappedIOPortSpace) {
-            {
-                uint64_t base =
-                        ROUNDDOWN(desc->PhysicalStart,
-                                ARMv8_HUGE_PAGE_SIZE) / ARMv8_HUGE_PAGE_SIZE;
-                uint64_t end = COVER(
-                        desc->PhysicalStart + PAGE_4k * desc->NumberOfPages,
+
+            uint64_t base = ROUNDDOWN(desc->PhysicalStart, ARMv8_HUGE_PAGE_SIZE)
+                    / ARMv8_HUGE_PAGE_SIZE;
+
+            if (last_device_base <= base){
+                uint64_t end = COVER( desc->PhysicalStart + PAGE_4k * desc->NumberOfPages,
                         ARMv8_HUGE_PAGE_SIZE);
 
                 DebugPrint(DEBUG_INFO, "MMIO region %p -> %p\n",
                         base * ARMv8_HUGE_PAGE_SIZE,
                         end * ARMv8_HUGE_PAGE_SIZE);
-
                 while (base < end) {
                     size_t table_number = base >> ARMv8_BLOCK_BITS;
                     size_t table_index = base & ARMv8_BLOCK_MASK;
                     union aarch64_descriptor *desc =
                             &cfg->tables->L1_tables[table_number][table_index];
+                    DebugPrint(DEBUG_INFO, "Setting device desc at %p number = %d index = %d\n", desc, table_number, table_index);
                     desc->block_l1.attrindex = 1;
 
                     base++;
                 }
+                last_device_base = end;
             }
-            {
-                uint64_t base16G = ROUNDDOWN(desc->PhysicalStart, BLOCK_16G);
-                uint64_t end16G = ROUNDUP(desc->PhysicalStart + PAGE_4k * desc->NumberOfPages, BLOCK_16G);
 
-                DebugPrint(DEBUG_INFO, "Non-contiguous %p -> %p\n", base16G,
+            uint64_t base16G = ROUNDDOWN(desc->PhysicalStart, BLOCK_16G) / ARMv8_HUGE_PAGE_SIZE;
+            if (base16G >= last_non_contiguous_addr) {
+
+                uint64_t end16G = ROUNDUP(desc->PhysicalStart + PAGE_4k * desc->NumberOfPages, BLOCK_16G)
+                        / ARMv8_HUGE_PAGE_SIZE;
+
+                DebugPrint(DEBUG_INFO, "Non-contiguous device %p -> %p\n", base16G,
                         end16G);
 
                 while (base16G < end16G) {
-                    size_t table_number = (base16G / ARMv8_HUGE_PAGE_SIZE)
-                            >> ARMv8_BLOCK_BITS;
-                    size_t table_index = (base16G / ARMv8_HUGE_PAGE_SIZE)
-                            & ARMv8_BLOCK_MASK;
+                    size_t table_number = base16G >> ARMv8_BLOCK_BITS;
+                    size_t table_index = base16G & ARMv8_BLOCK_MASK;
                     union aarch64_descriptor *desc =
                             &cfg->tables->L1_tables[table_number][table_index];
+                    DebugPrint(DEBUG_INFO, "Setting non-cont desc at %p number = %d index = %d\n", desc, table_number, table_index);
+                    ASSERT(desc->block_l1.base == base16G);
                     desc->block_l1.contiguous = 0;
 
-                    base16G += BLOCK_16G;
+                    base16G++;
                 }
+                last_non_contiguous_addr = end16G;
             }
         }
     }
