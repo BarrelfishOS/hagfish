@@ -19,6 +19,8 @@ struct page_tables;
 /* Application headers. */
 #include <Memory.h>
 
+#define KERNEL_OFFSET 0xffff000000000000
+
 EFI_STATUS build_page_tables(struct hagfish_config *cfg);
 void *get_root_table(struct hagfish_config *cfg);
 EFI_STATUS arch_probe(void);

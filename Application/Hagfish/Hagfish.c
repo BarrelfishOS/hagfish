@@ -379,7 +379,7 @@ relocate_elf(struct hagfish_config *cfg, Elf *elf,
                                 }
 
                                 /* Delta(S) + A */
-                                *rel_target= addend + segment_delta;
+                                *rel_target= addend + segment_delta + KERNEL_OFFSET;
 
 #if 0
                                 AsciiPrint("REL %p -> %llx\n",
