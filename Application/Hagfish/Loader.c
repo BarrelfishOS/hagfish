@@ -187,6 +187,7 @@ hagfish_loader_pxe_init(struct hagfish_loader *loader) {
     loader->size_fn = &pxe_size_fn;
     loader->config_file_name_fn = &pxe_config_file_name;
     loader->done_fn = &pxe_done;
+    loader->prepare_multiboot_fn = &pxe_prepare_multiboot_fn;
 
     /* Find the PXE service that loaded us. */
     DebugPrint(DEBUG_INFO,
