@@ -833,6 +833,14 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
      * the CPU driver. */
     free_bookkeeping(cfg);
 
+    /* Exit EFI boot services. */
+    AsciiPrint("Terminating boot services and jumping to image at %p\n",
+               kernel_entry);
+    AsciiPrint("New stack pointer is %p\n",
+               kernel_stack + stack_size - 16);
+
+    print_memory_map(0);
+
     /* The last thing we do is to grab the final memory map, including any
      * allocations and deallocations we've done, as per the UEFI spec
      * recommendation.  This fills in the space we set aside in the multiboot
@@ -856,11 +864,6 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         DebugPrint(DEBUG_ERROR, "relocate memory map: %r\n", status);
         return EFI_SUCCESS;
     }
-    /* Exit EFI boot services. */
-    AsciiPrint("Terminating boot services and jumping to image at %p\n",
-               kernel_entry);
-    AsciiPrint("New stack pointer is %p\n",
-               kernel_stack + stack_size - 16);
 
     status= gST->BootServices->ExitBootServices(
                 gImageHandle, mmap_key);

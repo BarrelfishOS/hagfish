@@ -206,7 +206,7 @@ build_page_tables(struct hagfish_config *cfg) {
             uint64_t base = ROUNDDOWN(desc->PhysicalStart, ARMv8_HUGE_PAGE_SIZE)
                     / ARMv8_HUGE_PAGE_SIZE;
 
-            if (last_device_base <= base){
+            if (last_device_base <= base) {
                 uint64_t end = COVER( desc->PhysicalStart + PAGE_4k * desc->NumberOfPages,
                         ARMv8_HUGE_PAGE_SIZE);
 
@@ -395,12 +395,15 @@ arch_probe(void) {
 
     UINTN current_el= ArmReadCurrentEL();
     switch(current_el) {
-        case AARCH64_EL2:
-            DebugPrint(DEBUG_INFO, "AArch64: Executing at EL2.\n");
-            break;
-        default:
-            DebugPrint(DEBUG_ERROR, "AArch64: Unknown or unsupported EL.\n");
-            return EFI_UNSUPPORTED;
+    case AARCH64_EL2:
+        DebugPrint(DEBUG_INFO, "AArch64: Executing at EL2.\n");
+        break;
+    case AARCH64_EL1:
+        DebugPrint(DEBUG_INFO, "AArch64: Executing at EL1.\n");
+        break;
+    default:
+        DebugPrint(DEBUG_ERROR, "AArch64: Unknown or unsupported EL.\n");
+        return EFI_UNSUPPORTED;
     }
 
     DebugPrint(DEBUG_INFO, "AArch64: EFI-supplied page table root is %p\n",
