@@ -183,7 +183,7 @@ build_page_tables(struct hagfish_config *cfg) {
         /* Mark the accessed flag, so we don't get a fault. */
         desc->block_l1.af= 1;
         /* Outer shareable - coherent. */
-        desc->block_l1.sh= 2;
+        desc->block_l1.sh= 3;
         /* EL1+ only. */
         desc->block_l1.ap= 0;
         /* Normal memory XXX set up MAIR_EL{1,2}[0]. */
