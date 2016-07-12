@@ -293,3 +293,33 @@ print_ram_regions(struct region_list *region_list) {
 
     AsciiPrint("%lldkB total\n", total / 1024);
 }
+
+EFI_STATUS
+relocate_memory_map(void) {
+    EFI_STATUS status;
+
+    if (!mmap_size) {
+        DebugPrint(DEBUG_ERROR, "NULL memory map!\n");
+        return EFI_LOAD_ERROR;
+    }
+
+    size_t mmap_n_desc = mmap_size / mmap_d_size;
+
+    for (size_t i= 0; i < mmap_n_desc; i++) {
+        EFI_MEMORY_DESCRIPTOR *desc=
+            (EFI_MEMORY_DESCRIPTOR *)(mmap + i * mmap_d_size);
+        desc->VirtualStart |= KERNEL_OFFSET;
+    }
+    return EFI_SUCCESS;
+}
+
+EFI_STATUS
+set_memory_map(void) {
+    if (!mmap_size) {
+        DebugPrint(DEBUG_ERROR, "NULL memory map!\n");
+        return EFI_LOAD_ERROR;
+    }
+
+    return gST->RuntimeServices->SetVirtualAddressMap(mmap_size, mmap_d_size,
+            mmap_d_ver, (void *) &mmap);
+}

@@ -850,6 +850,12 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     cfg->mmap_tag->descr_vers= mmap_d_ver;
     memcpy(cfg->mmap_start, mmap, mmap_size);
 
+    // Relocate EFI's memory map to the kernel virtual address space.
+    status = relocate_memory_map();
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "relocate memory map: %r\n", status);
+        return EFI_SUCCESS;
+    }
     /* Exit EFI boot services. */
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
                kernel_entry);
@@ -872,6 +878,12 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     SwitchStack((SWITCH_STACK_ENTRY_POINT)kernel_entry,
                 (void *)MULTIBOOT2_BOOTLOADER_MAGIC, multiboot,
                 kernel_stack + stack_size - 16);
+
+    status = set_memory_map();
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "set memory map: %r\n", status);
+        return EFI_SUCCESS;
+    }
 
     return EFI_SUCCESS;
 }
