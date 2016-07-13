@@ -95,6 +95,18 @@ print_memory_map(int update_map) {
     }
 }
 
+static int compare_efi_mmap_entry(const void *p1, const void *p2) {
+    const EFI_MEMORY_DESCRIPTOR *d1 = p1;
+    const EFI_MEMORY_DESCRIPTOR *d2 = p2;
+    if (d1->PhysicalStart < d2->PhysicalStart) {
+        return -1;
+    } else if (d1->PhysicalStart > d2->PhysicalStart) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 EFI_STATUS
 update_memory_map(void) {
     EFI_STATUS status;
@@ -118,6 +130,8 @@ update_memory_map(void) {
         DebugPrint(DEBUG_ERROR, "GetMemoryMap: %r\n", status);
         return status;
     }
+
+    qsort(mmap, mmap_size / mmap_d_size, mmap_d_size, compare_efi_mmap_entry);
 
     return EFI_SUCCESS;
 }
