@@ -164,6 +164,38 @@ subtree and configure your DHCP server to pass its relative path to the
 machine you wish to boot.  The Mustang boards will automatically attempt a PXE
 boot, as should most EFI machines, where no local boot device is configured.
 
+=== Debugging ===
+
+What you need:
+ * GDB for AARCH64. If not in your OS's repository, go to [2]
+ * Symbol file: Build/Hagfish/DEBUG_ARMGCC/AARCH64/Hagfish/Application/Hagfish/Hagfish/DEBUG/Hagfish.dll
+
+Steps:
+
+ * Set WAIT_FOR_GDB = 1 in Hagfish.dsc
+ * rebuild Hagfish
+ * extract the debug symbols:
+  $ aarch64-linux-gnu-objcopy --only-keep-debug \
+      Build/Hagfish/DEBUG_ARMGCC/AARCH64/Hagfish/Application/Hagfish/Hagfish/DEBUG/Hagfish.dll \
+      Hagfish.sym
+ * run GBD and attach to host, e.g. QEMU
+ * start the execution until you see: Hagfish loaded at 78449000, size 310304B, by handle 7B0CCB98
+ * (gdb) info files
+	Entry point: 0x0
+	0x0000000000000000 - 0x000000000003f924 is .text
+	0x000000000003f928 - 0x0000000000046026 is .rodata
+	0x0000000000056028 - 0x0000000000056e3a is .data
+	0x0000000000056e40 - 0x000000000005ad90 is .bss
+	0x0000000004ad0968 - 0x0000000004b1028c is .text in /local/code/hagfish.sym
+	0x000000000003f928 - 0x0000000000046026 is .rodata in /local/code/hagfish.sym
+	0x0000000000056028 - 0x0000000000056e3a is .data in /local/code/hagfish.sym
+	0x0000000000056e40 - 0x000000000005ad90 is .bss in /local/code/hagfish.sym
+ * Add the symbols at the right address: Use the load address and calculate the
+   new location of the data section (0x56e3a + 0x78449000)
+   (gdb) add-symbol-file Hagfish.sym 0x78449000 -s .data 0x784afe3a
+ * (gdb) set variable wait = 0
+ * (gdb) continue
+
 === Configuration ===
 
 Hagfish configures itself by loading a file whose path is generated from its

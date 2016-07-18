@@ -721,8 +721,6 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     EFI_LOADED_IMAGE_PROTOCOL *hag_image;
     int i, try_shell;
 
-
-
     status = ShellInitialize();
     if (EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Failed to initialize ShellLib, aborting.\n");
@@ -741,6 +739,21 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
     DebugPrint(DEBUG_INFO, "Hagfish loaded at %p, size %dB, by handle %p\n",
         hag_image->ImageBase, hag_image->ImageSize, hag_image->DeviceHandle);
+
+#if WAIT_FOR_GDB
+    /*
+        This waits with the execution until you set the variable wait
+        in GDB to zero.
+
+        Enable this in Hagfish.dsc
+     */
+    volatile int wait = 1;
+    volatile int counter = 0;
+    AsciiPrint("Waiting for release... (gdb) set variable wait = 0\n");
+    while (wait) {
+        counter++;
+    }
+#endif
 
     struct hagfish_loader loader;
     memset(&loader, 0, sizeof(loader));

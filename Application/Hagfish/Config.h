@@ -15,6 +15,13 @@
 /* EDK headers */
 #include <IndustryStandard/Acpi.h>
 
+/*
+    Switches on the wait for GDB loop
+ */
+#ifndef WAIT_FOR_GDB
+#define WAIT_FOR_GDB 0
+#endif
+
 /* The default inital stack size for the CPU driver, if it's not specified in
  * the configuration file. */
 #define DEFAULT_STACK_SIZE 16384
