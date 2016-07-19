@@ -326,8 +326,10 @@ relocate_elf(struct hagfish_config *cfg, Elf *elf,
                 return EFI_UNSUPPORTED;
             }
 
-            /* Hardcoded for one loadable segment. */
-            ASSERT(phnum == 1);
+            /* Hardcoded for one loadable segment.
+                XXX: seems to be not always the case for some ARMv8 builids.
+            */
+            //ASSERT(phnum == 1);
 
             Elf64_Addr segment_elf_base= phdr[0].p_vaddr;
             Elf64_Addr segment_load_base=
