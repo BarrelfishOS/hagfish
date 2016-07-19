@@ -809,6 +809,9 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         return EFI_SUCCESS;
     }
 
+    /* looking for ACPI tables */
+    acpi_search(cfg);
+
     /* Load the CPU driver from its ELF image, and relocate it. */
     status= prepare_kernel(cfg, &loader);
     if(EFI_ERROR(status)) {
