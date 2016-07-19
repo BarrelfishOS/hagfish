@@ -238,7 +238,7 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         sections->type= MULTIBOOT_TAG_TYPE_ELF_SECTIONS;
         sections->size= sizeof(struct multiboot_tag_elf_sections)
-                 + shnum * sizeof(Elf64_Shdr); 
+                 + shnum * sizeof(Elf64_Shdr);
         sections->num= shnum;
         sections->entsize= sizeof(Elf64_Shdr);
         sections->shndx= shndx;
@@ -890,7 +890,13 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* Do MMU configuration, switch page tables. */
     arch_init(root_table);
 
-    /* Jump to the start of the loaded image - doesn't return. */
+    /* Jump to the start of the loaded image - doesn't return.
+
+       ASSUMPTIONS:
+         - the code starts executing in LOW address.
+         - The exeception level is the highest that is supported.
+         - stack pointer and pointers to multiboot are in LOW memory
+     */
     SwitchStack((SWITCH_STACK_ENTRY_POINT)kernel_entry,
                 (void *)MULTIBOOT2_BOOTLOADER_MAGIC, multiboot,
                 kernel_stack + stack_size - 16);
