@@ -55,7 +55,8 @@
 #define roundpage(x) COVER((x), PAGE_4k)
 
 typedef void (*cpu_driver_entry)(uint32_t multiboot_magic,
-                                 void *multiboot_info);
+                                 void *multiboot_info,
+                                 void *stack);
 
 /* Copy a base+length string into a null-terminated string.  Destination
  * buffer must be large enough to hold the terminator i.e. n+1 characters. */
@@ -114,6 +115,11 @@ load_component(struct hagfish_loader *loader, struct component_config *cmp,
     return 1;
 }
 
+
+#define ROUND_UP(x, y) (((x) + ((y) - 1)) & ~((y) - 1))
+
+#define ALIGN(x) ROUND_UP((x), sizeof(uintptr_t))
+
 /* Allocate and fill the Multiboot information structure.  The memory map is
  * preallocated, but left empty until all allocations are finished. */
 void *
@@ -128,35 +134,35 @@ create_multiboot_info(struct hagfish_config *cfg,
     /* Fixed header - there's no struct for this in multiboot.h */
     size= 8;
     /* Kernel command line */
-    size+= sizeof(struct multiboot_tag_string)
-         + cfg->kernel->args_len+1;
+    size+= ALIGN(sizeof(struct multiboot_tag_string)
+         + cfg->kernel->args_len+1);
     /* DCHP ack packet */
-    size+= sizeof(struct multiboot_tag_network)
-         + sizeof(EFI_PXE_BASE_CODE_PACKET);
+    size+= ALIGN(sizeof(struct multiboot_tag_network)
+         + sizeof(EFI_PXE_BASE_CODE_PACKET));
     /* ACPI 1.0 header */
     if(cfg->acpi1_header) {
-        size+= sizeof(struct multiboot_tag_old_acpi)
-             + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        size+= ALIGN(sizeof(struct multiboot_tag_old_acpi)
+             + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
     }
     /* ACPI 2.0+ header */
     if(cfg->acpi2_header) {
-        size+= sizeof(struct multiboot_tag_new_acpi)
-             + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        size+= ALIGN(sizeof(struct multiboot_tag_new_acpi)
+             + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
     }
     /* ELF section headers */
-    size+= sizeof(struct multiboot_tag_elf_sections)
-         + shnum * sizeof(Elf64_Shdr);
+    size+= ALIGN(sizeof(struct multiboot_tag_elf_sections)
+         + shnum * sizeof(Elf64_Shdr));
     /* Kernel module tag, including command line and ELF image */
-    size+= sizeof(struct multiboot_tag_module_64)
-         + cfg->kernel->args_len+1 + cfg->kernel->image_size;
+    size+= ALIGN(sizeof(struct multiboot_tag_module_64)
+         + cfg->kernel->args_len+1 + cfg->kernel->image_size);
     /* All other modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
-        size+= sizeof(struct multiboot_tag_module_64)
-             + cmp->args_len+1 + cmp->image_size;
+        size+= ALIGN(sizeof(struct multiboot_tag_module_64)
+             + cmp->args_len+1 + cmp->image_size);
     }
     /* EFI memory map */
-    size+= sizeof(struct multiboot_tag_efi_mmap)
-         + MEM_MAP_SIZE;
+    size+= ALIGN(sizeof(struct multiboot_tag_efi_mmap)
+         + MEM_MAP_SIZE);
 
     /* Round up to a page size and allocate. */
     npages= roundpage(size);
@@ -166,8 +172,7 @@ create_multiboot_info(struct hagfish_config *cfg,
         return NULL;
     }
     memset(cfg->multiboot, 0, npages * PAGE_4k);
-    DebugPrint(DEBUG_INFO,
-               "Allocated %d pages for %dB multiboot info at %p.\n",
+    AsciiPrint("Allocated %d pages for %dB multiboot info at %p.\n",
                npages, size, cfg->multiboot);
 
     cursor= cfg->multiboot;
@@ -183,14 +188,14 @@ create_multiboot_info(struct hagfish_config *cfg,
             (struct multiboot_tag_string *)cursor;
 
         bootcmd->type= MULTIBOOT_TAG_TYPE_CMDLINE;
-        bootcmd->size= sizeof(struct multiboot_tag_string)
-                     + cfg->kernel->args_len+1;
+        bootcmd->size= ALIGN(sizeof(struct multiboot_tag_string)
+                     + cfg->kernel->args_len+1);
         ntstring(bootcmd->string,
                  cfg->buf + cfg->kernel->args_start,
                  cfg->kernel->args_len);
 
-        cursor+= sizeof(struct multiboot_tag_string)
-               + cfg->kernel->args_len+1;
+        cursor+= ALIGN(sizeof(struct multiboot_tag_string)
+               + cfg->kernel->args_len+1);
     }
     /* Add the DHCP ack packet. */
     {
@@ -202,13 +207,13 @@ create_multiboot_info(struct hagfish_config *cfg,
             (struct multiboot_tag_old_acpi *)cursor;
 
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_OLD;
-        acpi->size= sizeof(struct multiboot_tag_old_acpi)
-                  + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        acpi->size= ALIGN(sizeof(struct multiboot_tag_old_acpi)
+                  + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
         memcpy(&acpi->rsdp, cfg->acpi1_header,
                sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
-        cursor+= sizeof(struct multiboot_tag_old_acpi)
-               + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        cursor+= ALIGN(sizeof(struct multiboot_tag_old_acpi)
+               + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
     }
     /* Add the ACPI 2.0+ header */
     if(cfg->acpi2_header) {
@@ -216,13 +221,13 @@ create_multiboot_info(struct hagfish_config *cfg,
             (struct multiboot_tag_new_acpi *)cursor;
 
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_NEW;
-        acpi->size= sizeof(struct multiboot_tag_new_acpi)
-                  + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        acpi->size= ALIGN(sizeof(struct multiboot_tag_new_acpi)
+                  + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
         memcpy(&acpi->rsdp, cfg->acpi2_header,
                sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
-        cursor+= sizeof(struct multiboot_tag_new_acpi)
-               + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER);
+        cursor+= ALIGN(sizeof(struct multiboot_tag_new_acpi)
+               + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
     }
     /* Add the ELF section headers. */
     {
@@ -237,14 +242,14 @@ create_multiboot_info(struct hagfish_config *cfg,
         }
 
         sections->type= MULTIBOOT_TAG_TYPE_ELF_SECTIONS;
-        sections->size= sizeof(struct multiboot_tag_elf_sections)
-                 + shnum * sizeof(Elf64_Shdr);
+        sections->size= ALIGN(sizeof(struct multiboot_tag_elf_sections)
+                 + shnum * sizeof(Elf64_Shdr));
         sections->num= shnum;
         sections->entsize= sizeof(Elf64_Shdr);
         sections->shndx= shndx;
 
-        cursor+= sizeof(struct multiboot_tag_elf_sections)
-               + shnum * sizeof(Elf64_Shdr);
+        cursor+= ALIGN(sizeof(struct multiboot_tag_elf_sections)
+               + shnum * sizeof(Elf64_Shdr));
     }
     /* Add the kernel module. */
     {
@@ -252,8 +257,8 @@ create_multiboot_info(struct hagfish_config *cfg,
             (struct multiboot_tag_module_64 *)cursor;
 
         kernel->type= MULTIBOOT_TAG_TYPE_MODULE_64;
-        kernel->size= sizeof(struct multiboot_tag_module_64)
-                    + cfg->kernel->args_len+1  + cfg->kernel->image_size;
+        kernel->size= ALIGN(sizeof(struct multiboot_tag_module_64)
+                    + cfg->kernel->args_len+1  + cfg->kernel->image_size);
         kernel->mod_start=
             (multiboot_uint64_t)cfg->kernel->image_address;
         kernel->mod_end=
@@ -263,8 +268,8 @@ create_multiboot_info(struct hagfish_config *cfg,
                  cfg->buf + cfg->kernel->args_start,
                  cfg->kernel->args_len);
 
-        cursor+= sizeof(struct multiboot_tag_module_64)
-               + cfg->kernel->args_len+1 + cfg->kernel->image_size;
+        cursor+= ALIGN(sizeof(struct multiboot_tag_module_64)
+               + cfg->kernel->args_len+1 + cfg->kernel->image_size);
     }
     /* Add the remaining modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
@@ -272,8 +277,8 @@ create_multiboot_info(struct hagfish_config *cfg,
             (struct multiboot_tag_module_64 *)cursor;
 
         module->type= MULTIBOOT_TAG_TYPE_MODULE_64;
-        module->size= sizeof(struct multiboot_tag_module_64)
-                    + cmp->args_len+1 + cmp->image_size;
+        module->size= ALIGN(sizeof(struct multiboot_tag_module_64)
+                    + cmp->args_len+1 + cmp->image_size);
         module->mod_start=
             (multiboot_uint64_t)cmp->image_address;
         module->mod_end=
@@ -281,13 +286,13 @@ create_multiboot_info(struct hagfish_config *cfg,
                                  (cmp->image_size - 1));
         ntstring(module->cmdline, cfg->buf + cmp->args_start, cmp->args_len);
 
-        cursor+= sizeof(struct multiboot_tag_module_64)
-               + cmp->args_len+1 + cmp->image_size;
+        cursor+= ALIGN(sizeof(struct multiboot_tag_module_64)
+               + cmp->args_len+1 + cmp->image_size);
     }
     /* Record the position of the memory map, to be filled in after we've
      * finished doing allocations. */
     cfg->mmap_tag= (struct multiboot_tag_efi_mmap *)cursor;
-    cursor+= sizeof(struct multiboot_tag_efi_mmap);
+    cursor+= ALIGN(sizeof(struct multiboot_tag_efi_mmap));
     cfg->mmap_start= cursor;
 
     return cfg->multiboot;
@@ -854,8 +859,9 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* Exit EFI boot services. */
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
                kernel_entry);
-    AsciiPrint("New stack pointer is %p\n",
-               kernel_stack + stack_size - 16);
+    AsciiPrint("New stack pointer is %p   [%p..%p]\n",
+               kernel_stack + stack_size - 16, kernel_stack, kernel_stack + stack_size);
+    AsciiPrint("Multiboot2 pointer is %p\n", multiboot);
 
     print_memory_map(0);
 
@@ -903,8 +909,9 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
          - stack pointer and pointers to multiboot are in LOW memory
      */
     SwitchStack((SWITCH_STACK_ENTRY_POINT)kernel_entry,
-                (void *)MULTIBOOT2_BOOTLOADER_MAGIC, multiboot,
-                kernel_stack + stack_size - 16);
+                (void *)(uintptr_t)(MULTIBOOT2_BOOTLOADER_MAGIC),
+                (void *)multiboot,
+                (void *)(kernel_stack + stack_size - 16));
 
     status = set_memory_map();
     if(EFI_ERROR(status)) {
