@@ -240,7 +240,6 @@ build_page_tables(struct hagfish_config *cfg) {
                     size_t table_index = base16G & ARMv8_BLOCK_MASK;
                     union aarch64_descriptor *desc =
                             &cfg->tables->L1_tables[table_number][table_index];
-                    DebugPrint(DEBUG_INFO, "Setting non-cont desc at %p number = %d index = %d\n", desc, table_number, table_index);
                     ASSERT(desc->block_l1.base == base16G);
                     desc->block_l1.contiguous = 0;
 

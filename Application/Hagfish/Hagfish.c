@@ -182,7 +182,7 @@ create_multiboot_info(struct hagfish_config *cfg,
         hdr->magic = MULTIBOOT2_BOOTLOADER_MAGIC;
         hdr->architecture = MULTIBOOT_ARCHITECTURE_AARCH64;
         hdr->header_length = size;
-        hdr->checksum = ~(hdr->magic + hdr->architecture + hdr->header_length) - 1;
+        hdr->checksum = -(hdr->magic + hdr->architecture + hdr->header_length);
         cursor+= ALIGN(sizeof(struct multiboot_header));
     }
 
