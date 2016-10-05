@@ -131,8 +131,9 @@ create_multiboot_info(struct hagfish_config *cfg,
     void *cursor;
 
     /* Calculate the boot information size. */
-    /* Fixed header - there's no struct for this in multiboot.h */
-    size= 8;
+    /* Fixed header */
+    size= ALIGN(sizeof(struct multiboot_header));
+
     /* Kernel command line */
     size+= ALIGN(sizeof(struct multiboot_tag_string)
          + cfg->kernel->args_len+1);
@@ -176,11 +177,14 @@ create_multiboot_info(struct hagfish_config *cfg,
                npages, size, cfg->multiboot);
 
     cursor= cfg->multiboot;
-    /* Write the fixed header. */
-    *((uint32_t *)cursor)= size; /* total_size */
-    cursor+= sizeof(uint32_t);
-    *((uint32_t *)cursor)= 0;    /* reserved */
-    cursor+= sizeof(uint32_t);
+    {
+        struct multiboot_header *hdr = (struct multiboot_header *)cursor;
+        hdr->magic = MULTIBOOT2_BOOTLOADER_MAGIC;
+        hdr->architecture = MULTIBOOT_ARCHITECTURE_AARCH64;
+        hdr->header_length = size;
+        hdr->checksum = ~(hdr->magic + hdr->architecture + hdr->header_length) - 1;
+        cursor+= ALIGN(sizeof(struct multiboot_header));
+    }
 
     /* Add the boot command line */
     {
