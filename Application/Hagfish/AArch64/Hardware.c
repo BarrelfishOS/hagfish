@@ -30,6 +30,9 @@
 #include <Hardware.h>
 #include <Util.h>
 
+#define ATTR_CACHED 0
+#define ATTR_DEVICE 1
+
 struct page_tables {
     size_t nL1;
 
@@ -71,6 +74,31 @@ dump_table(uint64_t vbase, uint64_t *table, size_t level) {
 
 #define BLOCK_16G (ARMv8_HUGE_PAGE_SIZE * 16ULL)
 #define BLOCK_16G_MASK (ARMv8_HUGE_PAGE_SIZE * 16ULL)
+
+
+static EFI_STATUS
+page_table_set_attr(struct hagfish_config *cfg, uint64_t start, uint64_t end, uint64_t attr) {
+    uint64_t base = ROUNDDOWN(start, ARMv8_HUGE_PAGE_SIZE)
+            / ARMv8_HUGE_PAGE_SIZE;
+
+    uint64_t last = COVER(end, ARMv8_HUGE_PAGE_SIZE);
+
+    DebugPrint(DEBUG_INFO, "region type %d %p -> %p\n", attr,
+            base * ARMv8_HUGE_PAGE_SIZE,
+            last * ARMv8_HUGE_PAGE_SIZE);
+    while (base < last) {
+        size_t table_number = base >> ARMv8_BLOCK_BITS;
+        size_t table_index = base & ARMv8_BLOCK_MASK;
+        union aarch64_descriptor *desc =
+                &cfg->tables->L1_tables[table_number][table_index];
+        DebugPrint(DEBUG_INFO, "Setting desc at %p number = %d index = %d\n", desc, table_number, table_index);
+        desc->block_l1.attrindex = attr;
+
+        base++;
+    }
+
+    return EFI_SUCCESS;
+}
 
 EFI_STATUS
 build_page_tables(struct hagfish_config *cfg) {
@@ -149,8 +177,7 @@ build_page_tables(struct hagfish_config *cfg) {
     }
 
     /* Allocate the L1 tables. */
-    size_t i;
-    for(i= 0; i < cfg->tables->nL1; i++) {
+    for (size_t i = 0; i < cfg->tables->nL1; i++) {
         cfg->tables->L1_tables[i]=
             allocate_pages(1, EfiBarrelfishBootPageTable);
         if(!cfg->tables->L1_tables[i]) {
@@ -168,17 +195,17 @@ build_page_tables(struct hagfish_config *cfg) {
     }
 
     /* Install the 1GB block mappings. */
-    uint64_t firstblock= window_start / ARMv8_HUGE_PAGE_SIZE;
-    uint64_t nblocks= window_length / ARMv8_HUGE_PAGE_SIZE;
-    uint64_t block;
-    for(block= firstblock; block < firstblock + nblocks; block++) {
+    uint64_t firstblock = window_start / ARMv8_HUGE_PAGE_SIZE;
+    uint64_t nblocks = window_length / ARMv8_HUGE_PAGE_SIZE;
+    for (uint64_t block = firstblock; block < firstblock + nblocks; block++) {
         size_t table_number= block >> ARMv8_BLOCK_BITS;
         size_t table_index= block & ARMv8_BLOCK_MASK;
         union aarch64_descriptor *desc =
             &cfg->tables->L1_tables[table_number][table_index];
 
-        /* We're mapping 16GB contiguous blocks, to save TLB entries. */
-        desc->block_l1.contiguous= 1;
+        // We first map all block non-contiguous but later set the bit
+        // if possible
+        desc->block_l1.contiguous= 0;
         desc->block_l1.base= block;
         /* Mark the accessed flag, so we don't get a fault. */
         desc->block_l1.af= 1;
@@ -186,66 +213,49 @@ build_page_tables(struct hagfish_config *cfg) {
         desc->block_l1.sh= 3;
         /* EL1+ only. */
         desc->block_l1.ap= 0;
-        /* Normal memory XXX set up MAIR_EL{1,2}[0]. */
-        desc->block_l1.attrindex= 0;
+        // device memory by default
+        desc->block_l1.attrindex= ATTR_DEVICE;
         /* A block. */
         desc->block_l1.mb0= 0;
         desc->block_l1.valid= 1;
     }
 
-    uintptr_t last_non_contiguous_addr = 0;
-    uintptr_t last_device_base = 0;
-
+    // set all memory regions to cached
     size_t mmap_n_desc = mmap_size / mmap_d_size;
-    for (i = 0; i < mmap_n_desc; i++) {
+    for (size_t i = 0; i < mmap_n_desc; i++) {
         EFI_MEMORY_DESCRIPTOR *desc = (void *) (mmap + i * mmap_d_size);
         /* We're only looking for MMIO. */
-        if (desc->Type == EfiMemoryMappedIO
-                || desc->Type == EfiMemoryMappedIOPortSpace) {
+        if (desc->Type != EfiMemoryMappedIO
+                && desc->Type != EfiMemoryMappedIOPortSpace) {
+            page_table_set_attr(cfg, desc->PhysicalStart, desc->PhysicalStart + PAGE_4k * desc->NumberOfPages, ATTR_CACHED);
+        }
+    }
 
-            uint64_t base = ROUNDDOWN(desc->PhysicalStart, ARMv8_HUGE_PAGE_SIZE)
-                    / ARMv8_HUGE_PAGE_SIZE;
-
-            if (last_device_base <= base) {
-                uint64_t end = COVER( desc->PhysicalStart + PAGE_4k * desc->NumberOfPages,
-                        ARMv8_HUGE_PAGE_SIZE);
-
-                DebugPrint(DEBUG_INFO, "MMIO region %p -> %p\n",
-                        base * ARMv8_HUGE_PAGE_SIZE,
-                        end * ARMv8_HUGE_PAGE_SIZE);
-                while (base < end) {
-                    size_t table_number = base >> ARMv8_BLOCK_BITS;
-                    size_t table_index = base & ARMv8_BLOCK_MASK;
-                    union aarch64_descriptor *desc =
-                            &cfg->tables->L1_tables[table_number][table_index];
-                    DebugPrint(DEBUG_INFO, "Setting device desc at %p number = %d index = %d\n", desc, table_number, table_index);
-                    desc->block_l1.attrindex = 1;
-
-                    base++;
-                }
-                last_device_base = end;
+    // set the contiguous bit if possible
+    for (uint64_t block = firstblock; block < firstblock + nblocks; block += 16) {
+        BOOLEAN all_same = TRUE;
+        uint64_t attr;
+        for (uint64_t offset = 0; offset < 16; offset++) {
+            size_t table_number = (block + offset) >> ARMv8_BLOCK_BITS;
+            size_t table_index = (block + offset) & ARMv8_BLOCK_MASK;
+            union aarch64_descriptor *desc =
+                &cfg->tables->L1_tables[table_number][table_index];
+            if (offset == 0) {
+                attr = desc->block_l1.attrindex;
+            } else if (attr != desc->block_l1.attrindex) {
+                all_same = FALSE;
+                break;
             }
-
-            uint64_t base16G = ROUNDDOWN(desc->PhysicalStart, BLOCK_16G) / ARMv8_HUGE_PAGE_SIZE;
-            if (base16G >= last_non_contiguous_addr) {
-
-                uint64_t end16G = ROUNDUP(desc->PhysicalStart + PAGE_4k * desc->NumberOfPages, BLOCK_16G)
-                        / ARMv8_HUGE_PAGE_SIZE;
-
-                DebugPrint(DEBUG_INFO, "Non-contiguous device %p -> %p\n", base16G,
-                        end16G);
-
-                while (base16G < end16G) {
-                    size_t table_number = base16G >> ARMv8_BLOCK_BITS;
-                    size_t table_index = base16G & ARMv8_BLOCK_MASK;
-                    union aarch64_descriptor *desc =
-                            &cfg->tables->L1_tables[table_number][table_index];
-                    ASSERT(desc->block_l1.base == base16G);
-                    desc->block_l1.contiguous = 0;
-
-                    base16G++;
-                }
-                last_non_contiguous_addr = end16G;
+        }
+        if (all_same) {
+            // all entries in current block have the same attrindex value
+            // so we can set the contiguous bit
+            for (uint64_t offset = 0; offset < 16; offset++) {
+                size_t table_number = (block + offset) >> ARMv8_BLOCK_BITS;
+                size_t table_index = (block + offset) & ARMv8_BLOCK_MASK;
+                union aarch64_descriptor *desc =
+                    &cfg->tables->L1_tables[table_number][table_index];
+                desc->block_l1.contiguous = 1;
             }
         }
     }
