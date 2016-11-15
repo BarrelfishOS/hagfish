@@ -22,6 +22,7 @@
 #include <Allocation.h>
 #include <Config.h>
 
+const char *hagfish_config_fmt= "menu.lst.%d.%d.%d.%d";
 const char *hagfish_config_fmt= "hagfish.%d.%d.%d.%d.cfg";
 
 static inline int
