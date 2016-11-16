@@ -125,10 +125,10 @@ get_cmdline(const char *buf, size_t size, size_t *cursor,
     *astart= *cstart= *cursor; /* Path starts here. */
     *cursor= get_token(buf, size, *cursor);
     *clen= *cursor - *cstart; /* Path ends here. */
-    ASSERT(*clen <= size - *cursor);
+    ASSERT(*clen <= size - *cstart);
     *cursor= find_eol(buf, size, *cursor);
     *alen= *cursor - *astart;
-    ASSERT(*alen <= size - *cursor); /* Arguments end here. */
+    ASSERT(*alen <= size - *astart); /* Arguments end here. */
 
     return 1;
 }
