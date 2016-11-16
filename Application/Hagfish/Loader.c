@@ -93,7 +93,6 @@ EFI_PXE_BASE_CODE_PROTOCOL *
 pxe_loader(struct hagfish_loader *loader) {
     EFI_PXE_BASE_CODE_PROTOCOL *pxe;
     EFI_STATUS status;
-    DebugPrint(DEBUG_ERROR, "here: %a:%d\n", __FILE__, __LINE__);
 
     EFI_LOADED_IMAGE_PROTOCOL *image = loader->hagfishImage;
 
@@ -101,7 +100,6 @@ pxe_loader(struct hagfish_loader *loader) {
                 image->DeviceHandle, &gEfiPxeBaseCodeProtocolGuid,
                 (void **)&pxe, gImageHandle, NULL,
                 EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
-    DebugPrint(DEBUG_ERROR, "here: %a:%d\n", __FILE__, __LINE__);
 
     if(EFI_ERROR(status)) {
         AsciiPrint("OpenProtocol: %r\n", status);
