@@ -22,7 +22,7 @@
 #include <Allocation.h>
 #include <Config.h>
 
-const char *hagfish_config_fmt= "hagfish.%d.%d.%d.%d.cfg";
+const char *hagfish_config_fmt= "hagfish.cfg.%d.%d.%d.%d";
 
 static inline int
 isnewline(char c) {
