@@ -153,18 +153,18 @@ following example).
 
 Once the cross-compiler is installed, build Hagfish as follows:
   * Set up a UEFI build environment:
-  ```
+ ```
     $ git clone git://git.barrelfish.org/git/uefi-edk
     $ cd uefi-edk
     $ make -C BaseTools/
     $ export EDK_TOOLS_PATH=$(pwd)/BaseTools
     $ . edksetup.sh BaseTools
     $ export CROSS_COMPILE=/opt/gcc-linaro-4.9-2014.11-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
-  ```
+ ```
   * Checkout/extract/copy Hagfish into a subdirectory of uefi-edk, then:
-  ```
+ ```
     $ build -a AARCH64 -t ARMGCC -p Hagfish/Hagfish.dsc -m Hagfish/Application/Hagfish/Hagfish.inf -b DEBUG
-  ```
+ ```
   * The image is at Build/Hagfish/DEBUG_ARMGCC/AARCH64/Hagfish.efi
 
 === Booting ===
