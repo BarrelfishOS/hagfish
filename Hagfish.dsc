@@ -44,7 +44,7 @@
     # DEBUG_EVENT     0x00080000  // Event messages
     # DEBUG_VERBOSE   0x00400000  // Verbose
     # DEBUG_ERROR     0x80000000  // Error
-    gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80420447
+    gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80020447
 
     # If this isn't set, the ShellLib initialisation fails an assertion, as
     # the underlying protocols haven't been configured.  We don't need shell
