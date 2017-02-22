@@ -893,10 +893,10 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         return EFI_SUCCESS;
     }
 
-    status= gST->BootServices->ExitBootServices(
-                gImageHandle, mmap_key);
+    status = update_memory_map_and_exit_boot_services();
     if(EFI_ERROR(status)) {
-        DebugPrint(DEBUG_ERROR, "ExitBootServices: %r\n", status);
+        DebugPrint(DEBUG_ERROR, "Updating memory map and exit boot services: %r\n",
+                                status);
         return EFI_SUCCESS;
     }
 
