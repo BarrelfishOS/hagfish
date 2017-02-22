@@ -83,15 +83,15 @@ page_table_set_attr(struct hagfish_config *cfg, uint64_t start, uint64_t end, ui
 
     uint64_t last = COVER(end, ARMv8_HUGE_PAGE_SIZE);
 
-    DebugPrint(DEBUG_INFO, "region type %d %p -> %p\n", attr,
-            base * ARMv8_HUGE_PAGE_SIZE,
-            last * ARMv8_HUGE_PAGE_SIZE);
+    DebugPrint(DEBUG_VERBOSE, "region type %d %p -> %p\n", attr,
+               base * ARMv8_HUGE_PAGE_SIZE,
+               last * ARMv8_HUGE_PAGE_SIZE);
     while (base < last) {
         size_t table_number = base >> ARMv8_BLOCK_BITS;
         size_t table_index = base & ARMv8_BLOCK_MASK;
         union aarch64_descriptor *desc =
                 &cfg->tables->L1_tables[table_number][table_index];
-        DebugPrint(DEBUG_INFO, "Setting desc at %p number = %d index = %d\n", desc, table_number, table_index);
+       DebugPrint(DEBUG_VERBOSE, "Setting desc at %p number = %d index = %d\n", desc, table_number, table_index);
         desc->block_l1.attrindex = attr;
 
         base++;
@@ -132,8 +132,15 @@ build_page_tables(struct hagfish_config *cfg) {
      * else. */
     uint64_t first_address, last_address;
     first_address= 0;
+
+    /*
     last_address= list->regions[list->nregions-1].base
                 + list->regions[list->nregions-1].npages * PAGE_4k - 1;
+
+        XXX - workaround to get it going on the cavium machines
+    */
+
+    last_address = ((1UL << 48) - 1);
 
     DebugPrint(DEBUG_INFO, "Kernel physical window from %llx to %llx\n",
                first_address, last_address);
@@ -397,9 +404,9 @@ arch_probe(void) {
 
     if(ArmMmuEnabled()) DebugPrint(DEBUG_INFO, "AArch64: MMU is enabled.\n");
     else {
-        DebugPrint(DEBUG_ERROR,
-                   "AArch64: MMU is disabled: I didn't expect that.\n");
-        return EFI_UNSUPPORTED;
+        DebugPrint(DEBUG_ERROR, "AArch64: MMU is disabled: I didn't expect that.\n");
+        /* XXX - on the cavium machines, the MMU wasn't enabled we enable it later */
+        //return EFI_UNSUPPORTED;
     }
 
     UINTN current_el= ArmReadCurrentEL();
@@ -416,7 +423,7 @@ arch_probe(void) {
     }
 
     DebugPrint(DEBUG_INFO, "AArch64: EFI-supplied page table root is %p\n",
-               ArmGetTTBR0BaseAddress());
+                            ArmGetTTBR0BaseAddress());
 
     DebugPrint(DEBUG_INFO, "AArch64: Current configuration:\n");
     UINTN tcr= ArmGetTCR();
@@ -446,6 +453,9 @@ arch_init(void *L0_table) {
     /* Switch the table root and translation configuration. */
     ArmSetTTBR0(L0_table);
     ArmSetTCR(newtcr);
+
+    /* XXX - on the cavium machines the MMU wasn't enabled, so enable it now */
+    ArmEnableMmu();
 
     /* Invalidate the TLB, to flush the old table's mappings. */
     ArmInvalidateTlb();
