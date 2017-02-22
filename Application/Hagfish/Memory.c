@@ -136,6 +136,32 @@ update_memory_map(void) {
     return EFI_SUCCESS;
 }
 
+/* this updates the memory map and immediately calls ExitBootServices */
+EFI_STATUS
+update_memory_map_and_exit_boot_services(void) {
+    EFI_STATUS status;
+
+    /* Grab the current table from UEFI. */
+    mmap_size= MEM_MAP_SIZE;
+    status= gST->BootServices->GetMemoryMap(
+                &mmap_size, (void *)&mmap,
+                &mmap_key,  &mmap_d_size,
+                &mmap_d_ver);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "GetMemoryMap: %r\n", status);
+        return status;
+    }
+
+    status= gST->BootServices->ExitBootServices(
+            gImageHandle, mmap_key);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "ExitBootServices: ERROR %r, %x\n", status, mmap_key);
+        return status;
+    }
+
+    return EFI_SUCCESS;
+}
+
 EFI_STATUS
 update_ram_regions(struct hagfish_config *cfg) {
     ASSERT(cfg);
