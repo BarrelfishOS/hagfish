@@ -124,8 +124,7 @@ load_component(struct hagfish_loader *loader, struct component_config *cmp,
  * preallocated, but left empty until all allocations are finished. */
 void *
 create_multiboot_info(struct hagfish_config *cfg,
-                      struct hagfish_loader *loader,
-                      Elf *elf, size_t shnum) {
+                      struct hagfish_loader *loader) {
     UINTN size, npages;
     struct component_config *cmp;
     void *cursor;
@@ -134,9 +133,12 @@ create_multiboot_info(struct hagfish_config *cfg,
     /* Fixed header */
     size= ALIGN(sizeof(struct multiboot_header));
 
-    /* Kernel command line */
+    /* CPU Driver entry point*/
+    size+= ALIGN(sizeof(struct multiboot_tag_efi64));
+
+    /* cpu driver command line */
     size+= ALIGN(sizeof(struct multiboot_tag_string)
-         + cfg->kernel->args_len+1);
+         + cfg->cpu_driver->args_len+1);
     /* DCHP ack packet */
     size+= ALIGN(sizeof(struct multiboot_tag_network)
          + sizeof(EFI_PXE_BASE_CODE_PACKET));
@@ -150,12 +152,12 @@ create_multiboot_info(struct hagfish_config *cfg,
         size+= ALIGN(sizeof(struct multiboot_tag_new_acpi)
              + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
     }
-    /* ELF section headers */
-    size+= ALIGN(sizeof(struct multiboot_tag_elf_sections)
-         + shnum * sizeof(Elf64_Shdr));
-    /* Kernel module tag, including command line and ELF image */
+    /* Boot driver module tag, including command line and ELF image */
     size+= ALIGN(sizeof(struct multiboot_tag_module_64)
-         + cfg->kernel->args_len+1 + cfg->kernel->image_size);
+         + cfg->boot_driver->args_len+1 + cfg->boot_driver->image_size);
+    /* CPU driver module tag, including command line and ELF image */
+    size+= ALIGN(sizeof(struct multiboot_tag_module_64)
+             + cfg->cpu_driver->args_len+1 + cfg->cpu_driver->image_size);
     /* All other modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
         size+= ALIGN(sizeof(struct multiboot_tag_module_64)
@@ -185,6 +187,18 @@ create_multiboot_info(struct hagfish_config *cfg,
         hdr->checksum = -(hdr->magic + hdr->architecture + hdr->header_length);
         cursor+= ALIGN(sizeof(struct multiboot_header));
     }
+    /* Add the ELF section headers. */
+
+    {
+        struct multiboot_tag_efi64 *efi=
+            (struct multiboot_tag_efi64 *)cursor;
+
+        efi->type = MULTIBOOT_TAG_TYPE_EFI64;
+        efi->size = ALIGN(sizeof(struct multiboot_tag_efi64));
+        efi->pointer = (uint64_t)cfg->cpu_driver_entry;
+
+        cursor+= ALIGN(sizeof(struct multiboot_tag_efi64));
+    }
 
     /* Add the boot command line */
     {
@@ -193,14 +207,16 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         bootcmd->type= MULTIBOOT_TAG_TYPE_CMDLINE;
         bootcmd->size= ALIGN(sizeof(struct multiboot_tag_string)
-                     + cfg->kernel->args_len+1);
+                     + cfg->cpu_driver->args_len+1);
         ntstring(bootcmd->string,
-                 cfg->buf + cfg->kernel->args_start,
-                 cfg->kernel->args_len);
+                 cfg->buf + cfg->cpu_driver->args_start,
+                 cfg->cpu_driver->args_len);
 
         cursor+= ALIGN(sizeof(struct multiboot_tag_string)
-               + cfg->kernel->args_len+1);
+               + cfg->cpu_driver->args_len+1);
     }
+    /* Add the boot command line */
+
     /* Add the DHCP ack packet. */
     {
         loader->prepare_multiboot_fn(loader, &cursor);
@@ -233,27 +249,25 @@ create_multiboot_info(struct hagfish_config *cfg,
         cursor+= ALIGN(sizeof(struct multiboot_tag_new_acpi)
                + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
     }
-    /* Add the ELF section headers. */
+    /* Add the boot driver module. */
     {
-        struct multiboot_tag_elf_sections *sections=
-            (struct multiboot_tag_elf_sections *)cursor;
+        struct multiboot_tag_module_64 *kernel=
+            (struct multiboot_tag_module_64 *)cursor;
 
-        size_t shndx;
-        if(elf_getshdrstrndx(elf, &shndx)) {
-            DebugPrint(DEBUG_ERROR, "elf_getshdrstrndx: %a\n",
-                       elf_errmsg(elf_errno()));
-            return NULL;
-        }
+        kernel->type= MULTIBOOT_TAG_TYPE_MODULE_64;
+        kernel->size= ALIGN(sizeof(struct multiboot_tag_module_64)
+                    + cfg->boot_driver->args_len+1  + cfg->boot_driver->image_size);
+        kernel->mod_start=
+            (multiboot_uint64_t)cfg->boot_driver->image_address;
+        kernel->mod_end=
+            (multiboot_uint64_t)(cfg->boot_driver->image_address +
+                                 (cfg->boot_driver->image_size - 1));
+        ntstring(kernel->cmdline,
+                 cfg->buf + cfg->boot_driver->args_start,
+                 cfg->boot_driver->args_len);
 
-        sections->type= MULTIBOOT_TAG_TYPE_ELF_SECTIONS;
-        sections->size= ALIGN(sizeof(struct multiboot_tag_elf_sections)
-                 + shnum * sizeof(Elf64_Shdr));
-        sections->num= shnum;
-        sections->entsize= sizeof(Elf64_Shdr);
-        sections->shndx= shndx;
-
-        cursor+= ALIGN(sizeof(struct multiboot_tag_elf_sections)
-               + shnum * sizeof(Elf64_Shdr));
+        cursor+= ALIGN(sizeof(struct multiboot_tag_module_64)
+               + cfg->boot_driver->args_len+1 + cfg->boot_driver->image_size);
     }
     /* Add the kernel module. */
     {
@@ -262,18 +276,18 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         kernel->type= MULTIBOOT_TAG_TYPE_MODULE_64;
         kernel->size= ALIGN(sizeof(struct multiboot_tag_module_64)
-                    + cfg->kernel->args_len+1  + cfg->kernel->image_size);
+                    + cfg->cpu_driver->args_len+1  + cfg->cpu_driver->image_size);
         kernel->mod_start=
-            (multiboot_uint64_t)cfg->kernel->image_address;
+            (multiboot_uint64_t)cfg->cpu_driver->image_address;
         kernel->mod_end=
-            (multiboot_uint64_t)(cfg->kernel->image_address +
-                                 (cfg->kernel->image_size - 1));
+            (multiboot_uint64_t)(cfg->cpu_driver->image_address +
+                                 (cfg->cpu_driver->image_size - 1));
         ntstring(kernel->cmdline,
-                 cfg->buf + cfg->kernel->args_start,
-                 cfg->kernel->args_len);
+                 cfg->buf + cfg->cpu_driver->args_start,
+                 cfg->cpu_driver->args_len);
 
         cursor+= ALIGN(sizeof(struct multiboot_tag_module_64)
-               + cfg->kernel->args_len+1 + cfg->kernel->image_size);
+               + cfg->cpu_driver->args_len+1 + cfg->cpu_driver->image_size);
     }
     /* Add the remaining modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
@@ -303,8 +317,8 @@ create_multiboot_info(struct hagfish_config *cfg,
 }
 
 EFI_STATUS
-relocate_elf(struct hagfish_config *cfg, Elf *elf,
-             Elf64_Phdr *phdr, size_t phnum, size_t shnum) {
+relocate_elf(struct region_list *segments, Elf *elf,
+             Elf64_Phdr *phdr, size_t phnum, size_t shnum, uint64_t kernel_offset) {
     EFI_STATUS status;
     size_t i;
 
@@ -341,8 +355,7 @@ relocate_elf(struct hagfish_config *cfg, Elf *elf,
             //ASSERT(phnum == 1);
 
             Elf64_Addr segment_elf_base= phdr[0].p_vaddr;
-            Elf64_Addr segment_load_base=
-                cfg->kernel_segments->regions[0].base;
+            Elf64_Addr segment_load_base= segments->regions[0].base;
             Elf64_Sxword segment_delta= segment_load_base - segment_elf_base;
 
             /* Walk the section data descriptors. */
@@ -390,7 +403,7 @@ relocate_elf(struct hagfish_config *cfg, Elf *elf,
                                 }
 
                                 /* Delta(S) + A */
-                                *rel_target= addend + segment_delta + KERNEL_OFFSET;
+                                *rel_target= addend + segment_delta + kernel_offset;
 
 #if 0
                                 AsciiPrint("REL %p -> %llx\n",
@@ -420,13 +433,14 @@ relocate_elf(struct hagfish_config *cfg, Elf *elf,
 }
 
 EFI_STATUS
-prepare_kernel(struct hagfish_config *cfg, struct hagfish_loader *loader) {
+prepare_component(struct hagfish_loader *loader, struct component_config *component,
+                 struct region_list **load_segments, void ** ret_entry_point,
+                 uint64_t kernel_offset) {
     EFI_STATUS status;
     size_t i;
 
     elf_version(EV_CURRENT);
-    Elf *img_elf= elf_memory(cfg->kernel->image_address,
-                             cfg->kernel->image_size);
+    Elf *img_elf= elf_memory(component->image_address, component->image_size);
     if(!img_elf) {
         DebugPrint(DEBUG_ERROR, "elf_memory: %a\n", elf_errmsg(elf_errno()));
         return EFI_LOAD_ERROR;
@@ -494,13 +508,16 @@ prepare_kernel(struct hagfish_config *cfg, struct hagfish_loader *loader) {
         if(phdr[i].p_type == PT_LOAD) nloadsegs++;
     }
 
-    cfg->kernel_segments= malloc(sizeof(struct region_list) +
-                                 nloadsegs * sizeof(struct ram_region));
-    if(!cfg->kernel_segments) {
+    struct region_list *segments = malloc(sizeof(struct region_list) +
+                                            nloadsegs * sizeof(struct ram_region));
+    if(!segments) {
         DebugPrint(DEBUG_ERROR, "malloc: %s\n", strerror(errno));
         return EFI_OUT_OF_RESOURCES;
     }
-    cfg->kernel_segments->nregions= 0;
+
+    *load_segments = segments;
+
+    segments->nregions= 0;
 
     /* Load the CPU driver from its ELF image. */
     int found_entry_point= 0;
@@ -525,11 +542,11 @@ prepare_kernel(struct hagfish_config *cfg, struct hagfish_loader *loader) {
         DebugPrint(DEBUG_LOADFILE, "Loading into %d pages at %p\n",
                    p_pages, p_buf);
 
-        cfg->kernel_segments->regions[i].base= (uint64_t)p_buf;
-        cfg->kernel_segments->regions[i].npages= p_pages;
-        cfg->kernel_segments->nregions++;
+        segments->regions[i].base= (uint64_t)p_buf;
+        segments->regions[i].npages= p_pages;
+        segments->nregions++;
 
-        memcpy(p_buf, cfg->kernel->image_address + phdr[i].p_offset,
+        memcpy(p_buf, component->image_address + phdr[i].p_offset,
                phdr[i].p_filesz);
 
         if(ehdr->e_entry >= phdr[i].p_vaddr &&
@@ -548,7 +565,7 @@ prepare_kernel(struct hagfish_config *cfg, struct hagfish_loader *loader) {
         return EFI_LOAD_ERROR;
     }
 
-    status= relocate_elf(cfg, img_elf, phdr, phnum, shnum);
+    status= relocate_elf(segments, img_elf, phdr, phnum, shnum, kernel_offset);
     if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Relocation failed.\n");
         return EFI_LOAD_ERROR;
@@ -559,7 +576,32 @@ prepare_kernel(struct hagfish_config *cfg, struct hagfish_loader *loader) {
                    "Kernel entry point wasn't in any loaded segment.\n");
         return EFI_LOAD_ERROR;
     }
-    cfg->kernel_entry= entry_point;
+
+    *ret_entry_point = entry_point + kernel_offset;
+
+    /* Finished with the kernel ELF. */
+    elf_end(img_elf);
+
+    return EFI_SUCCESS;
+}
+
+EFI_STATUS
+prepare_boot_driver(struct hagfish_config *cfg, struct hagfish_loader *loader)
+{
+    EFI_STATUS status = prepare_component(loader, cfg->boot_driver,
+                                          &cfg->boot_driver_segments,
+                                          &cfg->boot_driver_entry, 0);
+    DebugPrint(DEBUG_INFO,
+               "Relocated boot driver entry point is %p\n",
+               cfg->cpu_driver_entry);
+
+    return status;
+}
+
+
+EFI_STATUS
+prepare_cpu_driver(struct hagfish_config *cfg, struct hagfish_loader *loader)
+{
 
     /* Allocate a stack */
     cfg->kernel_stack= allocate_pages(COVER(cfg->stack_size, PAGE_4k),
@@ -569,20 +611,15 @@ prepare_kernel(struct hagfish_config *cfg, struct hagfish_loader *loader) {
         return EFI_OUT_OF_RESOURCES;
     }
 
+
+    EFI_STATUS status = prepare_component(loader, cfg->cpu_driver,
+                                          &cfg->cpu_driver_segments,
+                                          &cfg->cpu_driver_entry, KERNEL_OFFSET);
     DebugPrint(DEBUG_INFO,
-               "Relocated entry point is %p, stack at %p\n",
-               cfg->kernel_entry, cfg->kernel_stack);
+               "Relocated CPU driver entry point is %p, stack at %p\n",
+               cfg->cpu_driver_entry, cfg->kernel_stack);
 
-    /* Create the multiboot header. */
-    if(!create_multiboot_info(cfg, loader, img_elf, shnum)) {
-        DebugPrint(DEBUG_ERROR, "Failed to create multiboot structure.\n");
-        return EFI_SUCCESS;
-    }
-
-    /* Finished with the kernel ELF. */
-    elf_end(img_elf);
-
-    return EFI_SUCCESS;
+    return status;
 }
 
 void
@@ -779,9 +816,17 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     struct hagfish_config *cfg= load_config(&loader);
     if(!cfg) return EFI_SUCCESS;
 
+    /* Load the boot driver. */
+    DebugPrint(DEBUG_INFO, "Loading the boot driver [");
+    if(!load_component(&loader, cfg->boot_driver, cfg->buf)) {
+        DebugPrint(DEBUG_ERROR, "\nFailed to load the kernel.\n");
+        return EFI_SUCCESS;
+    }
+    DebugPrint(DEBUG_INFO, "].\n");
+
     /* Load the kernel. */
-    DebugPrint(DEBUG_INFO, "Loading the kernel [");
-    if(!load_component(&loader, cfg->kernel, cfg->buf)) {
+    DebugPrint(DEBUG_INFO, "Loading the cpu driver [");
+    if(!load_component(&loader, cfg->cpu_driver, cfg->buf)) {
         DebugPrint(DEBUG_ERROR, "\nFailed to load the kernel.\n");
         return EFI_SUCCESS;
     }
@@ -821,10 +866,22 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* looking for ACPI tables */
     acpi_search(cfg);
 
+    status = prepare_boot_driver(cfg, &loader);
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Failed to prepare boot driver.\n");
+        return EFI_SUCCESS;
+    }
+
     /* Load the CPU driver from its ELF image, and relocate it. */
-    status= prepare_kernel(cfg, &loader);
+    status= prepare_cpu_driver(cfg, &loader);
     if(EFI_ERROR(status)) {
         DebugPrint(DEBUG_ERROR, "Failed to prepare CPU driver.\n");
+        return EFI_SUCCESS;
+    }
+
+    /* Create the multiboot header. */
+    if(!create_multiboot_info(cfg, &loader)) {
+        DebugPrint(DEBUG_ERROR, "Failed to create multiboot structure.\n");
         return EFI_SUCCESS;
     }
 
@@ -844,7 +901,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* Save the kernel entry point and other pointers (we're about to free
      * cfg).  As these copies are sitting on our stack, they'll be freed when
      * the CPU driver recycles Hagfish's memory regions. */
-    void *kernel_entry= cfg->kernel_entry;
+    void *kernel_entry= cfg->boot_driver_entry;
     void *multiboot= cfg->multiboot;
     void *kernel_stack= cfg->kernel_stack;
     size_t stack_size= cfg->stack_size;

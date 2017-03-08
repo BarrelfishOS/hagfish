@@ -185,24 +185,44 @@ parse_config(char *buf, size_t size) {
                 arg[alen]= '\0';
                 cfg->stack_size= strtoul(arg, NULL, 10);
             }
-            else if(!strncmp("kernel", buf+tstart, 6)) {
-                if(cfg->kernel) {
-                    DebugPrint(DEBUG_ERROR, "Kernel defined twice\n");
+            else if(!strncmp("bootdriver", buf+tstart, 10)) {
+                if(cfg->boot_driver) {
+                    DebugPrint(DEBUG_ERROR, "Boot driver defined twice\n");
                     goto parse_fail;
                 }
 
-                cfg->kernel= calloc(1, sizeof(struct component_config));
-                if(!cfg->kernel) {
+                cfg->boot_driver= calloc(1, sizeof(struct component_config));
+                if(!cfg->boot_driver) {
                     DebugPrint(DEBUG_ERROR, "calloc: %a\n", strerror(errno));
                     goto parse_fail;
                 }
 
                 /* Grab the command line. */
                 if(!get_cmdline(buf, size, &cursor,
-                                &cfg->kernel->path_start,
-                                &cfg->kernel->path_len,
-                                &cfg->kernel->args_start,
-                                &cfg->kernel->args_len))
+                                &cfg->boot_driver->path_start,
+                                &cfg->boot_driver->path_len,
+                                &cfg->boot_driver->args_start,
+                                &cfg->boot_driver->args_len))
+                    goto parse_fail;
+            }
+            else if(!strncmp("cpudriver", buf+tstart, 6)) {
+                if(cfg->cpu_driver) {
+                    DebugPrint(DEBUG_ERROR, "CPU driver defined twice\n");
+                    goto parse_fail;
+                }
+
+                cfg->cpu_driver= calloc(1, sizeof(struct component_config));
+                if(!cfg->cpu_driver) {
+                    DebugPrint(DEBUG_ERROR, "calloc: %a\n", strerror(errno));
+                    goto parse_fail;
+                }
+
+                /* Grab the command line. */
+                if(!get_cmdline(buf, size, &cursor,
+                                &cfg->cpu_driver->path_start,
+                                &cfg->cpu_driver->path_len,
+                                &cfg->cpu_driver->args_start,
+                                &cfg->cpu_driver->args_len))
                     goto parse_fail;
             }
             else if(!strncmp("module", buf+tstart, 6)) {
@@ -241,16 +261,22 @@ parse_config(char *buf, size_t size) {
         }
     }
 
-    if(!cfg->kernel) {
-        DebugPrint(DEBUG_ERROR, "No kernel image specified\n");
+    if(!cfg->boot_driver) {
+        DebugPrint(DEBUG_ERROR, "No bootdriver image specified\n");
         goto parse_fail;
     }
+
+    if(!cfg->cpu_driver) {
+            DebugPrint(DEBUG_ERROR, "No cpu driver image specified\n");
+            goto parse_fail;
+        }
 
     return cfg;
 
 parse_fail:
     if(cfg) {
-        if(cfg->kernel) free(cfg->kernel);
+        if(cfg->boot_driver) free(cfg->boot_driver);
+        if(cfg->cpu_driver) free(cfg->cpu_driver);
 
         struct component_config *cmp= cfg->first_module;
         while(cmp) {
@@ -281,8 +307,11 @@ free_bookkeeping(struct hagfish_config *cfg) {
     if(cfg->tables) free_page_table_bookkeeping(cfg->tables);
 
     /* The kernel. */
-    if(cfg->kernel) free(cfg->kernel);
-    if(cfg->kernel_segments) free_region_list(cfg->kernel_segments);
+    if(cfg->boot_driver) free(cfg->boot_driver);
+    if(cfg->boot_driver_segments) free_region_list(cfg->boot_driver_segments);
+    if(cfg->cpu_driver) free(cfg->cpu_driver);
+    if(cfg->cpu_driver_segments) free_region_list(cfg->cpu_driver_segments);
+
 
     /* All non-kernel components. */
 

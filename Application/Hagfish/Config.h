@@ -59,14 +59,20 @@ struct hagfish_config {
 
     /* The list of physical memory regions. */
     struct region_list *ram_regions;
+    struct region_list *device_regions;
 
     /* The kernel's initial page tables. */
     struct page_tables *tables;
 
+    /* The boot driver */
+    struct component_config *boot_driver;
+    struct region_list *boot_driver_segments;
+    void *boot_driver_entry;
+
     /* The CPU driver load information. */
-    struct component_config *kernel;
-    struct region_list *kernel_segments;
-    void *kernel_entry;
+    struct component_config *cpu_driver;
+    struct region_list *cpu_driver_segments;
+    void *cpu_driver_entry;
     void *kernel_stack;
     size_t stack_size;
 
