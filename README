@@ -159,7 +159,7 @@ Set up a UEFI build environment:
     $ make -C BaseTools/
     $ export EDK_TOOLS_PATH=$(pwd)/BaseTools
     $ . edksetup.sh BaseTools
-    $ export CROSS_COMPILE=/opt/gcc-linaro-4.9-2014.11-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
+    $ export CROSS_COMPILE=aarch64-linux-gnu-
 ```
 Checkout/extract/copy Hagfish into a subdirectory of uefi-edk, then:
 ```
