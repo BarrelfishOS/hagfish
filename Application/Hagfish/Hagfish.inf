@@ -22,6 +22,7 @@
     Hagfish.c
     Memory.c
     Loader.c
+    Acpi.c
 
 [Sources.AARCH64]
     AArch64/Hardware.c

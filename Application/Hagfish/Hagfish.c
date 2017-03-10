@@ -51,6 +51,7 @@
 #include <Memory.h>
 #include <Util.h>
 #include <Loader.h>
+#include <Acpi.h>
 
 #define roundpage(x) COVER((x), PAGE_4k)
 
@@ -622,32 +623,6 @@ prepare_cpu_driver(struct hagfish_config *cfg, struct hagfish_loader *loader)
     return status;
 }
 
-void
-acpi_search(struct hagfish_config *cfg) {
-    DebugPrint(DEBUG_INFO, "Found %d EFI configuration tables\n",
-               gST->NumberOfTableEntries);
-
-    size_t i;
-    for(i= 0; i < gST->NumberOfTableEntries; i++) {
-        EFI_CONFIGURATION_TABLE *entry= &gST->ConfigurationTable[i];
-
-        if(CompareGuid(&entry->VendorGuid, &gEfiAcpi20TableGuid)) {
-            cfg->acpi2_header= entry->VendorTable;
-            DebugPrint(DEBUG_INFO,
-                       "ACPI 2.0 table at %p, signature \"% 8.8a\"\n",
-                       cfg->acpi2_header,
-                       (const char *)&cfg->acpi2_header->Signature);
-        }
-        else if(CompareGuid(&entry->VendorGuid, &gEfiAcpi10TableGuid)) {
-            cfg->acpi1_header= entry->VendorTable;
-            DebugPrint(DEBUG_INFO,
-                       "ACPI 1.0 table at %p, signature \"% 8.8a\"\n",
-                       cfg->acpi1_header,
-                       (const char *)&cfg->acpi1_header->Signature);
-        }
-    }
-}
-
 EFI_LOADED_IMAGE_PROTOCOL *
 my_image(void) {
     EFI_LOADED_IMAGE_PROTOCOL *hag_image;
@@ -816,6 +791,18 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     struct hagfish_config *cfg= load_config(&loader);
     if(!cfg) return EFI_SUCCESS;
 
+    /* looking for ACPI tables */
+    status = acpi_find_root_table(cfg);
+    if(!EFI_ERROR(status)) {
+        status = acpi_parse_madt(cfg);
+        if(EFI_ERROR(status)) {
+            DebugPrint(DEBUG_ERROR, "ACPI: could not parse MADT. Info not available\n");
+        }
+    } else {
+        DebugPrint(DEBUG_ERROR, "ACPI: root tables not found.\n");
+    }
+
+
     /* Load the boot driver. */
     DebugPrint(DEBUG_INFO, "Loading the boot driver [");
     if(!load_component(&loader, cfg->boot_driver, cfg->buf)) {
@@ -862,9 +849,6 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         DebugPrint(DEBUG_ERROR, "Failed to create initial page table.\n");
         return EFI_SUCCESS;
     }
-
-    /* looking for ACPI tables */
-    acpi_search(cfg);
 
     status = prepare_boot_driver(cfg, &loader);
     if(EFI_ERROR(status)) {
@@ -924,7 +908,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
                kernel_stack + stack_size - 16, kernel_stack, kernel_stack + stack_size);
     AsciiPrint("Multiboot2 pointer is %p\n", multiboot);
 
-    print_memory_map(0);
+    print_memory_map(1);
 
     /* The last thing we do is to grab the final memory map, including any
      * allocations and deallocations we've done, as per the UEFI spec
