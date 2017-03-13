@@ -230,7 +230,7 @@ create_multiboot_info(struct hagfish_config *cfg,
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_OLD;
         acpi->size= ALIGN(sizeof(struct multiboot_tag_old_acpi)
                   + sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
-        memcpy(&acpi->rsdp, cfg->acpi1_header,
+        memcpy(&acpi->rsdp[0], cfg->acpi1_header,
                sizeof(EFI_ACPI_1_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= ALIGN(sizeof(struct multiboot_tag_old_acpi)
@@ -244,7 +244,7 @@ create_multiboot_info(struct hagfish_config *cfg,
         acpi->type= MULTIBOOT_TAG_TYPE_ACPI_NEW;
         acpi->size= ALIGN(sizeof(struct multiboot_tag_new_acpi)
                   + sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
-        memcpy(&acpi->rsdp, cfg->acpi2_header,
+        memcpy(&acpi->rsdp[0], cfg->acpi2_header,
                sizeof(EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER));
 
         cursor+= ALIGN(sizeof(struct multiboot_tag_new_acpi)
