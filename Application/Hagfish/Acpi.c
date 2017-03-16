@@ -326,7 +326,7 @@ EFI_STATUS acpi_parse_madt(struct hagfish_config *cfg)
 
     while(p < table_end) {
         EFI_ACPI_6_0_MADT_COMMON_ELEMENT *elm = p;
-        acpi_dump_madt_entry(p);
+    //    acpi_dump_madt_entry(p);
         switch(elm->Type) {
         case EFI_ACPI_6_0_GIC :
         {
