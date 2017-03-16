@@ -904,8 +904,9 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* Exit EFI boot services. */
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
                kernel_entry);
-    AsciiPrint("New stack pointer is %p   [%p..%p]\n",
-               kernel_stack + stack_size - 16, kernel_stack, kernel_stack + stack_size);
+    AsciiPrint("New stack pointer is %p   [%p..%p]  0x%p kB\n",
+               kernel_stack + stack_size - 16, kernel_stack,
+               kernel_stack + stack_size, stack_size >> 10);
     AsciiPrint("Multiboot2 pointer is %p\n", multiboot);
 
     print_memory_map(1);
