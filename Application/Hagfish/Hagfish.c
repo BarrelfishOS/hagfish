@@ -131,11 +131,11 @@ create_multiboot_info(struct hagfish_config *cfg,
     void *cursor;
 
     /* Calculate the boot information size. */
-    /* Fixed header */
-    size= ALIGN(sizeof(struct multiboot_header));
+    /* Multiboot2 information data structure */
+    size = 8;
 
     /* CPU Driver entry point*/
-    size+= ALIGN(sizeof(struct multiboot_tag_efi64));
+    size += ALIGN(sizeof(struct multiboot_tag_efi64));
 
     /* cpu driver command line */
     size+= ALIGN(sizeof(struct multiboot_tag_string)
@@ -155,18 +155,21 @@ create_multiboot_info(struct hagfish_config *cfg,
     }
     /* Boot driver module tag, including command line and ELF image */
     size+= ALIGN(sizeof(struct multiboot_tag_module_64)
-         + cfg->boot_driver->args_len+1 + cfg->boot_driver->image_size);
+         + cfg->boot_driver->args_len+1);
     /* CPU driver module tag, including command line and ELF image */
     size+= ALIGN(sizeof(struct multiboot_tag_module_64)
-             + cfg->cpu_driver->args_len+1 + cfg->cpu_driver->image_size);
+             + cfg->cpu_driver->args_len+1);
     /* All other modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
         size+= ALIGN(sizeof(struct multiboot_tag_module_64)
-             + cmp->args_len+1 + cmp->image_size);
+             + cmp->args_len+1);
     }
     /* EFI memory map */
     size+= ALIGN(sizeof(struct multiboot_tag_efi_mmap)
          + MEM_MAP_SIZE);
+
+     /* The end */
+    size += ALIGN(sizeof(struct multiboot_tag));
 
     /* Round up to a page size and allocate. */
     npages= roundpage(size);
@@ -179,15 +182,12 @@ create_multiboot_info(struct hagfish_config *cfg,
     AsciiPrint("Allocated %d pages for %dB multiboot info at %p.\n",
                npages, size, cfg->multiboot);
 
-    cursor= cfg->multiboot;
-    {
-        struct multiboot_header *hdr = (struct multiboot_header *)cursor;
-        hdr->magic = MULTIBOOT2_BOOTLOADER_MAGIC;
-        hdr->architecture = MULTIBOOT_ARCHITECTURE_AARCH64;
-        hdr->header_length = size;
-        hdr->checksum = -(hdr->magic + hdr->architecture + hdr->header_length);
-        cursor+= ALIGN(sizeof(struct multiboot_header));
-    }
+    // Fill the tags
+    cursor = cfg->multiboot;
+
+    /* Skip the information structure for now*/
+    cursor += 8;
+
     /* Add the ELF section headers. */
 
     {
@@ -257,7 +257,7 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         kernel->type= MULTIBOOT_TAG_TYPE_MODULE_64;
         kernel->size= ALIGN(sizeof(struct multiboot_tag_module_64)
-                    + cfg->boot_driver->args_len+1  + cfg->boot_driver->image_size);
+                    + cfg->boot_driver->args_len+1);
         kernel->mod_start=
             (multiboot_uint64_t)cfg->boot_driver->image_address;
         kernel->mod_end=
@@ -267,8 +267,7 @@ create_multiboot_info(struct hagfish_config *cfg,
                  cfg->buf + cfg->boot_driver->args_start,
                  cfg->boot_driver->args_len);
 
-        cursor+= ALIGN(sizeof(struct multiboot_tag_module_64)
-               + cfg->boot_driver->args_len+1 + cfg->boot_driver->image_size);
+        cursor+= kernel->size;
     }
     /* Add the kernel module. */
     {
@@ -277,7 +276,7 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         kernel->type= MULTIBOOT_TAG_TYPE_MODULE_64;
         kernel->size= ALIGN(sizeof(struct multiboot_tag_module_64)
-                    + cfg->cpu_driver->args_len+1  + cfg->cpu_driver->image_size);
+                    + cfg->cpu_driver->args_len+1);
         kernel->mod_start=
             (multiboot_uint64_t)cfg->cpu_driver->image_address;
         kernel->mod_end=
@@ -287,8 +286,7 @@ create_multiboot_info(struct hagfish_config *cfg,
                  cfg->buf + cfg->cpu_driver->args_start,
                  cfg->cpu_driver->args_len);
 
-        cursor+= ALIGN(sizeof(struct multiboot_tag_module_64)
-               + cfg->cpu_driver->args_len+1 + cfg->cpu_driver->image_size);
+        cursor+= kernel->size;
     }
     /* Add the remaining modules */
     for(cmp= cfg->first_module; cmp; cmp= cmp->next) {
@@ -297,7 +295,7 @@ create_multiboot_info(struct hagfish_config *cfg,
 
         module->type= MULTIBOOT_TAG_TYPE_MODULE_64;
         module->size= ALIGN(sizeof(struct multiboot_tag_module_64)
-                    + cmp->args_len+1 + cmp->image_size);
+                    + cmp->args_len+1);
         module->mod_start=
             (multiboot_uint64_t)cmp->image_address;
         module->mod_end=
@@ -305,15 +303,18 @@ create_multiboot_info(struct hagfish_config *cfg,
                                  (cmp->image_size - 1));
         ntstring(module->cmdline, cfg->buf + cmp->args_start, cmp->args_len);
 
-        cursor+= ALIGN(sizeof(struct multiboot_tag_module_64)
-               + cmp->args_len+1 + cmp->image_size);
+        cursor+= module->size;
     }
     /* Record the position of the memory map, to be filled in after we've
      * finished doing allocations. */
-    cfg->mmap_tag= (struct multiboot_tag_efi_mmap *)cursor;
-    cursor+= ALIGN(sizeof(struct multiboot_tag_efi_mmap));
-    cfg->mmap_start= cursor;
-
+    {
+        struct multiboot_tag_efi_mmap *mmap_tag = (struct multiboot_tag_efi_mmap *)cursor;
+        mmap_tag->type = MULTIBOOT_TAG_TYPE_EFI_MMAP;
+        mmap_tag->size = ALIGN(sizeof(struct multiboot_tag_efi_mmap) + MEM_MAP_SIZE);
+        cfg->mmap_tag = mmap_tag;
+        cfg->mmap_start = cursor + sizeof(struct multiboot_tag_efi_mmap);
+        cursor += mmap_tag->size;
+    }
     return cfg->multiboot;
 }
 
@@ -922,11 +923,19 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
      * the multiboot specification requires them to be 32 bit, while EFI may
      * return 64-bit values.  Note that 'mmap_tag' points *inside* the
      * structure pointed to by 'multiboot'. */
-    cfg->mmap_tag->type= MULTIBOOT_TAG_TYPE_EFI_MMAP;
-    cfg->mmap_tag->size= sizeof(struct multiboot_tag_efi_mmap) + mmap_size;
-    cfg->mmap_tag->descr_size= mmap_d_size;
-    cfg->mmap_tag->descr_vers= mmap_d_ver;
+
+    cfg->mmap_tag->size = ALIGN(sizeof(struct multiboot_tag_efi_mmap) + mmap_size);
+    cfg->mmap_tag->descr_size = mmap_d_size;
+    cfg->mmap_tag->descr_vers = mmap_d_ver;
     memcpy(cfg->mmap_start, mmap, mmap_size);
+
+    /* The end tag */
+    {
+        struct multiboot_tag *tag = (void *)cfg->mmap_tag + cfg->mmap_tag->size;
+        tag->type = MULTIBOOT_TAG_TYPE_END;
+        tag->size = ALIGN(sizeof(struct multiboot_tag));
+        *(multiboot_uint32_t *)multiboot = (void *)tag + tag->size - (void *)multiboot;
+    }
 
     // Relocate EFI's memory map to the kernel virtual address space.
     status = relocate_memory_map();
