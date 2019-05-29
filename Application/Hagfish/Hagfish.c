@@ -321,7 +321,6 @@ create_multiboot_info(struct hagfish_config *cfg,
 EFI_STATUS
 relocate_elf(struct region_list *segments, Elf *elf,
              Elf64_Phdr *phdr, size_t phnum, size_t shnum, uint64_t kernel_offset) {
-    EFI_STATUS status;
     size_t i;
 
     DebugPrint(DEBUG_INFO, "Relocating kernel image.\n");
@@ -743,7 +742,7 @@ EFI_STATUS
 UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     EFI_STATUS status;
     EFI_LOADED_IMAGE_PROTOCOL *hag_image;
-    int i, try_shell;
+    int try_shell;
 
     status = ShellInitialize();
     if (EFI_ERROR(status)) {

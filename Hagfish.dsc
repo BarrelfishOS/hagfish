@@ -72,7 +72,7 @@
     ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
 
 [LibraryClasses.AARCH64]
-    ArmLib|ArmPkg/Library/ArmLib/AArch64/AArch64Lib.inf
+    ArmLib|ArmPkg/Library/ArmLib/ArmBaseLib.inf
 
 [SkuIds]
     0|DEFAULT

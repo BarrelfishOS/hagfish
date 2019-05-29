@@ -336,8 +336,6 @@ print_ram_regions(struct region_list *region_list) {
 
 EFI_STATUS
 relocate_memory_map(void) {
-    EFI_STATUS status;
-
     if (!mmap_size) {
         DebugPrint(DEBUG_ERROR, "NULL memory map!\n");
         return EFI_LOAD_ERROR;

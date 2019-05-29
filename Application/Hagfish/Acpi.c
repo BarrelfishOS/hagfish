@@ -29,16 +29,16 @@
 
 
 
-static INT32 acpi_get_version(struct hagfish_config *cfg)
-{
-    if (cfg->acpi2_header) {
-        return cfg->acpi2_header->Revision;
-    } else if (cfg->acpi1_header) {
-        return 1;
-    } else {
-        return -1;
-    }
-}
+// static INT32 acpi_get_version(struct hagfish_config *cfg)
+// {
+//     if (cfg->acpi2_header) {
+//         return cfg->acpi2_header->Revision;
+//     } else if (cfg->acpi1_header) {
+//         return 1;
+//     } else {
+//         return -1;
+//     }
+// }
 
 static uint8_t acpu_table_checksum(void * table, size_t len)
 {
@@ -87,108 +87,108 @@ const char *madt_elm_string[EFI_ACPI_6_0_GIC_ITS + 1] = {
         "GIC_ITS                        ",
 };
 
-static void acpi_dump_madt_entry(EFI_ACPI_6_0_MADT_COMMON_ELEMENT *elm)
-{
-    DebugPrint(DEBUG_INFO, "ACPI 2.0 MADT Element @ %p\n", elm);
+// static void acpi_dump_madt_entry(EFI_ACPI_6_0_MADT_COMMON_ELEMENT *elm)
+// {
+//     DebugPrint(DEBUG_INFO, "ACPI 2.0 MADT Element @ %p\n", elm);
 
-        DebugPrint(DEBUG_INFO, "   Type                          = 0x%x (%a)\n",
-                    elm->Type, madt_elm_string[elm->Type]);
-        DebugPrint(DEBUG_INFO, "   Length                        = %u\n",
-                    elm->Length);
+//         DebugPrint(DEBUG_INFO, "   Type                          = 0x%x (%a)\n",
+//                     elm->Type, madt_elm_string[elm->Type]);
+//         DebugPrint(DEBUG_INFO, "   Length                        = %u\n",
+//                     elm->Length);
 
-    switch(elm->Type) {
-    case EFI_ACPI_6_0_GIC :
-    {
-        EFI_ACPI_6_0_GIC_STRUCTURE *gicc = (EFI_ACPI_6_0_GIC_STRUCTURE *)elm;
-        DebugPrint(DEBUG_INFO, "   Reserved                      = %u\n",
-                   gicc->Reserved);
-        DebugPrint(DEBUG_INFO, "   CPUInterfaceNumber            = 0x%x (%u)\n",
-                   gicc->CPUInterfaceNumber, gicc->CPUInterfaceNumber);
-        DebugPrint(DEBUG_INFO, "   AcpiProcessorUid              = 0x%x (%u)\n",
-                   gicc->AcpiProcessorUid, gicc->AcpiProcessorUid);
-        DebugPrint(DEBUG_INFO, "   Flags                         = 0x%x\n",
-                   gicc->Flags);
-        DebugPrint(DEBUG_INFO, "   ParkingProtocolVersion        = 0x%x (%u)\n",
-                   gicc->ParkingProtocolVersion, gicc->ParkingProtocolVersion);
-        DebugPrint(DEBUG_INFO, "   PerformanceInterruptGsiv      = 0x%x (%u)\n",
-                   gicc->PerformanceInterruptGsiv, gicc->PerformanceInterruptGsiv);
-        DebugPrint(DEBUG_INFO, "   ParkedAddress                 = 0x%p\n",
-                   gicc->ParkedAddress);
-        DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n",
-                   gicc->PhysicalBaseAddress);
-        DebugPrint(DEBUG_INFO, "   GICV                          = 0x%p\n",
-                   gicc->GICV);
-        DebugPrint(DEBUG_INFO, "   GICH                          = 0x%p\n",
-                   gicc->GICH);
-        DebugPrint(DEBUG_INFO, "   VGICMaintenanceInterrupt      = 0x%x (%u)\n",
-                gicc->VGICMaintenanceInterrupt, gicc->VGICMaintenanceInterrupt);
-        DebugPrint(DEBUG_INFO, "   GICRBaseAddress               = 0x%p\n",
-                   gicc->GICRBaseAddress);
-        DebugPrint(DEBUG_INFO, "   MPIDR                         = 0x%x (%u)\n",
-                gicc->MPIDR, gicc->MPIDR);
-        if (elm->Length == 80) {
-            DebugPrint(DEBUG_INFO, "   ProcessorPowerEfficiencyClass = 0x%x (%u)\n",
-                        gicc->ProcessorPowerEfficiencyClass, gicc->ProcessorPowerEfficiencyClass);
-        }
-        break;
-    }
-    case EFI_ACPI_6_0_GICD :
-    {
-        EFI_ACPI_6_0_GIC_DISTRIBUTOR_STRUCTURE *gicd = (EFI_ACPI_6_0_GIC_DISTRIBUTOR_STRUCTURE*) elm;
-        DebugPrint(DEBUG_INFO, "   Reserved1                     = \n",
-                    gicd->Reserved1);
-        DebugPrint(DEBUG_INFO, "   GicId                         = %u\n",
-                    gicd->GicId);
-        DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n",
-                    gicd->PhysicalBaseAddress);
-        DebugPrint(DEBUG_INFO, "   SystemVectorBase              = %u\n",
-                    gicd->SystemVectorBase);
-        break;
-    }
-    case EFI_ACPI_6_0_GIC_MSI_FRAME :
-    {
-        EFI_ACPI_6_0_GIC_MSI_FRAME_STRUCTURE *gicmsi = (EFI_ACPI_6_0_GIC_MSI_FRAME_STRUCTURE*)elm;
-        DebugPrint(DEBUG_INFO, "   Reserved1                     = %u\n",
-                    gicmsi->Reserved1);
-        DebugPrint(DEBUG_INFO, "   GicMsiFrameId                 = %u\n",
-                    gicmsi->GicMsiFrameId);
-        DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n",
-                    gicmsi->PhysicalBaseAddress);
-        DebugPrint(DEBUG_INFO, "   Flags                         = 0x%x\n",
-                    gicmsi->Flags);
-        DebugPrint(DEBUG_INFO, "   SPICount                      = %u\n",
-                    gicmsi->SPICount);
-        DebugPrint(DEBUG_INFO, "   SPIBase                       = %u\n",
-                    gicmsi->SPIBase);
-        break;
-    }
-    case EFI_ACPI_6_0_GICR :
-    {
-        EFI_ACPI_6_0_GICR_STRUCTURE *gicr = (EFI_ACPI_6_0_GICR_STRUCTURE *)elm;
-        DebugPrint(DEBUG_INFO, "   Reserved                      = %u\n",
-                    gicr->Reserved);
-        DebugPrint(DEBUG_INFO, "   DiscoveryRangeBaseAddress     = 0x%p\n",
-                    gicr->DiscoveryRangeBaseAddress);
-        DebugPrint(DEBUG_INFO, "   DiscoveryRangeLength          = 0x%x (%u)\n",
-                    gicr->DiscoveryRangeLength, gicr->DiscoveryRangeLength);
-        break;
-    }
-    case EFI_ACPI_6_0_GIC_ITS :
-    {
-        EFI_ACPI_6_0_GIC_ITS_STRUCTURE *gicits = (EFI_ACPI_6_0_GIC_ITS_STRUCTURE *)elm;
-        DebugPrint(DEBUG_INFO, "   Reserved                      = \n",
-                gicits->Reserved);
-        DebugPrint(DEBUG_INFO, "   GicItsId                      = 0x%x (%u)\n",
-                gicits->GicItsId, gicits->GicItsId);
-        DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n", gicits->PhysicalBaseAddress);
-        break;
-    }
+//     switch(elm->Type) {
+//     case EFI_ACPI_6_0_GIC :
+//     {
+//         EFI_ACPI_6_0_GIC_STRUCTURE *gicc = (EFI_ACPI_6_0_GIC_STRUCTURE *)elm;
+//         DebugPrint(DEBUG_INFO, "   Reserved                      = %u\n",
+//                    gicc->Reserved);
+//         DebugPrint(DEBUG_INFO, "   CPUInterfaceNumber            = 0x%x (%u)\n",
+//                    gicc->CPUInterfaceNumber, gicc->CPUInterfaceNumber);
+//         DebugPrint(DEBUG_INFO, "   AcpiProcessorUid              = 0x%x (%u)\n",
+//                    gicc->AcpiProcessorUid, gicc->AcpiProcessorUid);
+//         DebugPrint(DEBUG_INFO, "   Flags                         = 0x%x\n",
+//                    gicc->Flags);
+//         DebugPrint(DEBUG_INFO, "   ParkingProtocolVersion        = 0x%x (%u)\n",
+//                    gicc->ParkingProtocolVersion, gicc->ParkingProtocolVersion);
+//         DebugPrint(DEBUG_INFO, "   PerformanceInterruptGsiv      = 0x%x (%u)\n",
+//                    gicc->PerformanceInterruptGsiv, gicc->PerformanceInterruptGsiv);
+//         DebugPrint(DEBUG_INFO, "   ParkedAddress                 = 0x%p\n",
+//                    gicc->ParkedAddress);
+//         DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n",
+//                    gicc->PhysicalBaseAddress);
+//         DebugPrint(DEBUG_INFO, "   GICV                          = 0x%p\n",
+//                    gicc->GICV);
+//         DebugPrint(DEBUG_INFO, "   GICH                          = 0x%p\n",
+//                    gicc->GICH);
+//         DebugPrint(DEBUG_INFO, "   VGICMaintenanceInterrupt      = 0x%x (%u)\n",
+//                 gicc->VGICMaintenanceInterrupt, gicc->VGICMaintenanceInterrupt);
+//         DebugPrint(DEBUG_INFO, "   GICRBaseAddress               = 0x%p\n",
+//                    gicc->GICRBaseAddress);
+//         DebugPrint(DEBUG_INFO, "   MPIDR                         = 0x%x (%u)\n",
+//                 gicc->MPIDR, gicc->MPIDR);
+//         if (elm->Length == 80) {
+//             DebugPrint(DEBUG_INFO, "   ProcessorPowerEfficiencyClass = 0x%x (%u)\n",
+//                         gicc->ProcessorPowerEfficiencyClass, gicc->ProcessorPowerEfficiencyClass);
+//         }
+//         break;
+//     }
+//     case EFI_ACPI_6_0_GICD :
+//     {
+//         EFI_ACPI_6_0_GIC_DISTRIBUTOR_STRUCTURE *gicd = (EFI_ACPI_6_0_GIC_DISTRIBUTOR_STRUCTURE*) elm;
+//         DebugPrint(DEBUG_INFO, "   Reserved1                     = \n",
+//                     gicd->Reserved1);
+//         DebugPrint(DEBUG_INFO, "   GicId                         = %u\n",
+//                     gicd->GicId);
+//         DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n",
+//                     gicd->PhysicalBaseAddress);
+//         DebugPrint(DEBUG_INFO, "   SystemVectorBase              = %u\n",
+//                     gicd->SystemVectorBase);
+//         break;
+//     }
+//     case EFI_ACPI_6_0_GIC_MSI_FRAME :
+//     {
+//         EFI_ACPI_6_0_GIC_MSI_FRAME_STRUCTURE *gicmsi = (EFI_ACPI_6_0_GIC_MSI_FRAME_STRUCTURE*)elm;
+//         DebugPrint(DEBUG_INFO, "   Reserved1                     = %u\n",
+//                     gicmsi->Reserved1);
+//         DebugPrint(DEBUG_INFO, "   GicMsiFrameId                 = %u\n",
+//                     gicmsi->GicMsiFrameId);
+//         DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n",
+//                     gicmsi->PhysicalBaseAddress);
+//         DebugPrint(DEBUG_INFO, "   Flags                         = 0x%x\n",
+//                     gicmsi->Flags);
+//         DebugPrint(DEBUG_INFO, "   SPICount                      = %u\n",
+//                     gicmsi->SPICount);
+//         DebugPrint(DEBUG_INFO, "   SPIBase                       = %u\n",
+//                     gicmsi->SPIBase);
+//         break;
+//     }
+//     case EFI_ACPI_6_0_GICR :
+//     {
+//         EFI_ACPI_6_0_GICR_STRUCTURE *gicr = (EFI_ACPI_6_0_GICR_STRUCTURE *)elm;
+//         DebugPrint(DEBUG_INFO, "   Reserved                      = %u\n",
+//                     gicr->Reserved);
+//         DebugPrint(DEBUG_INFO, "   DiscoveryRangeBaseAddress     = 0x%p\n",
+//                     gicr->DiscoveryRangeBaseAddress);
+//         DebugPrint(DEBUG_INFO, "   DiscoveryRangeLength          = 0x%x (%u)\n",
+//                     gicr->DiscoveryRangeLength, gicr->DiscoveryRangeLength);
+//         break;
+//     }
+//     case EFI_ACPI_6_0_GIC_ITS :
+//     {
+//         EFI_ACPI_6_0_GIC_ITS_STRUCTURE *gicits = (EFI_ACPI_6_0_GIC_ITS_STRUCTURE *)elm;
+//         DebugPrint(DEBUG_INFO, "   Reserved                      = \n",
+//                 gicits->Reserved);
+//         DebugPrint(DEBUG_INFO, "   GicItsId                      = 0x%x (%u)\n",
+//                 gicits->GicItsId, gicits->GicItsId);
+//         DebugPrint(DEBUG_INFO, "   PhysicalBaseAddress           = 0x%p\n", gicits->PhysicalBaseAddress);
+//         break;
+//     }
 
-    default:
-        DebugPrint(DEBUG_INFO, "   Implement element dumping...\n");
-        break;
-    }
-}
+//     default:
+//         DebugPrint(DEBUG_INFO, "   Implement element dumping...\n");
+//         break;
+//     }
+// }
 
 void *
 acpi_allocate_pages(EFI_PHYSICAL_ADDRESS memory, size_t n, EFI_MEMORY_TYPE type) {
