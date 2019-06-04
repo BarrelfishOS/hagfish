@@ -346,7 +346,8 @@ relocate_memory_map(void) {
     for (size_t i= 0; i < mmap_n_desc; i++) {
         EFI_MEMORY_DESCRIPTOR *desc=
             (EFI_MEMORY_DESCRIPTOR *)(mmap + i * mmap_d_size);
-        desc->VirtualStart |= KERNEL_OFFSET;
+        // 1:1 mapping into kernel window
+        desc->VirtualStart = desc->PhysicalStart + KERNEL_OFFSET;
     }
     return EFI_SUCCESS;
 }

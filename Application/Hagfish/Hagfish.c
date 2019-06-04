@@ -915,8 +915,21 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
      * allocations and deallocations we've done, as per the UEFI spec
      * recommendation.  This fills in the space we set aside in the multiboot
      * structure. */
-    status= update_memory_map();
-    if(EFI_ERROR(status)) return EFI_SUCCESS;
+    status = update_memory_map_and_exit_boot_services();
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "Updating memory map and exit boot services: %r\n",
+                                status);
+        return EFI_SUCCESS;
+    }
+
+    /*** EFI boot services are now terminated, we're on our own. */
+
+    // Relocate EFI's memory map to the kernel virtual address space.
+    status = relocate_memory_map();
+    if(EFI_ERROR(status)) {
+        DebugPrint(DEBUG_ERROR, "relocate memory map: %r\n", status);
+        return EFI_SUCCESS;
+    }
 
     /* Fill in the tag.  We can't use GetMemoryMap to fill these directly, as
      * the multiboot specification requires them to be 32 bit, while EFI may
@@ -936,22 +949,11 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         *(multiboot_uint32_t *)multiboot = (void *)tag + tag->size - (void *)multiboot;
     }
 
-    // Relocate EFI's memory map to the kernel virtual address space.
-    status = relocate_memory_map();
+    status = set_memory_map();
     if(EFI_ERROR(status)) {
-        DebugPrint(DEBUG_ERROR, "relocate memory map: %r\n", status);
+        DebugPrint(DEBUG_ERROR, "set memory map: %r\n", status);
         return EFI_SUCCESS;
     }
-
-    status = update_memory_map_and_exit_boot_services();
-    if(EFI_ERROR(status)) {
-        DebugPrint(DEBUG_ERROR, "Updating memory map and exit boot services: %r\n",
-                                status);
-        return EFI_SUCCESS;
-    }
-
-    /*** EFI boot services are now terminated, we're on our own. */
-
     /* Do MMU configuration, switch page tables. */
     arch_init(root_table);
 
@@ -966,12 +968,6 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
                 (void *)(uintptr_t)(MULTIBOOT2_BOOTLOADER_MAGIC),
                 (void *)multiboot,
                 (void *)(kernel_stack + stack_size - 16));
-
-    status = set_memory_map();
-    if(EFI_ERROR(status)) {
-        DebugPrint(DEBUG_ERROR, "set memory map: %r\n", status);
-        return EFI_SUCCESS;
-    }
 
     return EFI_SUCCESS;
 }
