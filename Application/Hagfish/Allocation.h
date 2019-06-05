@@ -18,13 +18,14 @@
  * its code, data, stack and Multiboot info block are located, so that it can
  * avoid trampling on them. */
 typedef enum {
-    EfiBarrelfishFirstMemType=   0x80000000,
+    EfiBarrelfishFirstMemType=      0x80000000,
 
-    EfiBarrelfishCPUDriver=      0x80000000,
-    EfiBarrelfishCPUDriverStack= 0x80000001,
-    EfiBarrelfishMultibootData=  0x80000002,
-    EfiBarrelfishELFData=        0x80000003,
-    EfiBarrelfishBootPageTable=  0x80000004,
+    EfiBarrelfishCPUDriver=         0x80000000,
+    EfiBarrelfishCPUDriverStack=    0x80000001,
+    EfiBarrelfishMultibootData=     0x80000002,
+    EfiBarrelfishELFData=           0x80000003,
+    EfiBarrelfishBootPageTable=     0x80000004,
+    EfiBarrelfishCoreData=          0x80000005,
 
     EfiBarrelfishMaxMemType
 } EFI_BARRELFISH_MEMORY_TYPE;
