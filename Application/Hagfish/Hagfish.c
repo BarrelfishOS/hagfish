@@ -735,8 +735,8 @@ create_core_data(struct hagfish_config *cfg) {
     memset(core_data, 0, PAGE_4k);
 
     core_data->boot_magic = ARMV8_BOOTMAGIC_BSP;
-    core_data->cpu_driver_stack = (EFI_PHYSICAL_ADDRESS)cfg->kernel_stack + cfg->stack_size + KERNEL_OFFSET - 16;
-    core_data->cpu_driver_stack_limit = (EFI_PHYSICAL_ADDRESS)cfg->kernel_stack + KERNEL_OFFSET;
+    core_data->cpu_driver_stack = (EFI_PHYSICAL_ADDRESS)cfg->kernel_stack + cfg->stack_size - 16;
+    core_data->cpu_driver_stack_limit = (EFI_PHYSICAL_ADDRESS)cfg->kernel_stack;
     core_data->cpu_driver_entry = (EFI_VIRTUAL_ADDRESS)cfg->cpu_driver_entry;
     core_data->page_table_root = (EFI_PHYSICAL_ADDRESS)get_root_table(cfg);
     ntstring(
@@ -745,9 +745,9 @@ create_core_data(struct hagfish_config *cfg) {
         MIN(cfg->cpu_driver->args_len, 127)
     );
     
-    core_data->multiboot_image.base = (EFI_PHYSICAL_ADDRESS)cfg->multiboot + KERNEL_OFFSET;
+    core_data->multiboot_image.base = (EFI_PHYSICAL_ADDRESS)cfg->multiboot;
     core_data->multiboot_image.length = ((struct multiboot_info *)cfg->multiboot)->total_size;
-    core_data->efi_mmap = (EFI_PHYSICAL_ADDRESS)cfg->mmap_tag + KERNEL_OFFSET;
+    core_data->efi_mmap = (EFI_PHYSICAL_ADDRESS)cfg->mmap_tag;
 
     return core_data;
 }
