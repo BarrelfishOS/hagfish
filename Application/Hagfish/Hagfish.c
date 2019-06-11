@@ -56,10 +56,6 @@
 
 #define roundpage(x) COVER((x), PAGE_4k)
 
-typedef void (*cpu_driver_entry)(uint32_t multiboot_magic,
-                                 void *multiboot_info,
-                                 void *stack);
-
 /* Copy a base+length string into a null-terminated string.  Destination
  * buffer must be large enough to hold the terminator i.e. n+1 characters. */
 static inline void
@@ -537,8 +533,7 @@ prepare_component(struct hagfish_loader *loader, struct component_config *compon
 
         if(ehdr->e_entry >= phdr[i].p_vaddr &&
            ehdr->e_entry - phdr[i].p_vaddr < phdr[i].p_memsz) {
-            entry_point=
-                (cpu_driver_entry)(p_buf + (ehdr->e_entry - phdr[i].p_vaddr));
+            entry_point=(p_buf + (ehdr->e_entry - phdr[i].p_vaddr));
             found_entry_point= 1;
         }
     }
@@ -926,7 +921,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     /* Exit EFI boot services. */
     AsciiPrint("Terminating boot services and jumping to image at %p\n",
                kernel_entry);
-    AsciiPrint("New stack pointer is %p   [%p..%p]  0x%p kB\n",
+    AsciiPrint("New stack pointer is %p [%p..%p] 0x%p kB\n",
                kernel_stack + stack_size - 16, kernel_stack,
                kernel_stack + stack_size, stack_size >> 10);
     AsciiPrint("Core data pointer is %p\n", core_data);
@@ -965,10 +960,10 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
 
     /* The end tag */
     {
-        struct multiboot_tag *tag = (void *)cfg->mmap_tag + cfg->mmap_tag->size;
-        tag->type = MULTIBOOT_TAG_TYPE_END;
-        tag->size = ALIGN(sizeof(struct multiboot_tag));
-        ((struct multiboot_info *)multiboot)->total_size = (void *)tag + tag->size - (void *)multiboot;
+        struct multiboot_tag *end_tag = (void *)cfg->mmap_tag + cfg->mmap_tag->size;
+        end_tag->type = MULTIBOOT_TAG_TYPE_END;
+        end_tag->size = ALIGN(sizeof(struct multiboot_tag));
+        ((struct multiboot_info *)multiboot)->total_size = (void *)end_tag + end_tag->size - (void *)multiboot;
     }
 
     status = set_memory_map();
