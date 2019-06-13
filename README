@@ -140,30 +140,28 @@ Clone it with:
 === Building ===
 
 Hagfish is built using the [[https://github.com/tianocore/edk2|UEFI embedded development kit (EDKII)]]
-(tested on `edk2-stable201903` tag). 
+(tested on `edk2-stable201905` tag). 
 
 You'll need an AArch64-compatible cross compiler, on Ubuntu 18.04 you can install
 the `gcc-aarch64-linux-gnu` package.
 
 Once the cross-compiler is installed, build Hagfish as follows:
-Set up a UEFI build environment:
+Set up a UEFI build environment (run these commands in the parent directory of Hagfish):
 ```
-    $ git clone -b edk2-stable201903 https://github.com/tianocore/edk2.git
-    $ cd edk2
-    $ make -C BaseTools/
-    $ export EDK_TOOLS_PATH=$(pwd)/BaseTools
-    $ . edksetup.sh BaseTools
+    $ git clone -b edk2-stable201905 https://github.com/tianocore/edk2.git
+    $ git clone https://github.com/tianocore/edk2-libc.git
+    $ make -C edk2/BaseTools/
+    $ export WORKSPACE=$(pwd)/edk2
+    $ export PACKAGES_PATH=$(pwd)/edk2-libc:$(pwd)
+    $ export EDK_TOOLS_PATH=$(pwd)/edk2/BaseTools
+    $ . edk2/edksetup.sh
     $ export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
 ```
-Note that newer releases of EDKII will ship without a libc port. It is going to be released separately (https://github.com/tianocore/edk2-libc).
-Hagfish should also build with these releases. You just need to checkout the libc port and copy/symlink the directories
-`AppPkg`, `StdLib` and `StdLibPrivateInternalFiles` into the root directory of EDKII.
-
-Checkout/extract/copy/symlink Hagfish into a subdirectory of edk2, then:
+Build Hagfish:
 ```
     $ build -a AARCH64 -t GCC5 -p Hagfish/Hagfish.dsc -m Hagfish/Application/Hagfish/Hagfish.inf -b DEBUG
 ```
-The image is at `Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish.efi`.
+The image is at `edk2/Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish.efi`.
 
 === Booting ===
 
@@ -176,7 +174,7 @@ boot, as should most EFI machines, where no local boot device is configured.
 
 What you need:
  * GDB for AARCH64. If not in your OS's repository, go to [2]
- * Symbol file: Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish/Application/Hagfish/Hagfish/DEBUG/Hagfish.dll
+ * Symbol file: edk2/Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish/Application/Hagfish/Hagfish/DEBUG/Hagfish.dll
 
 Steps:
 
@@ -184,7 +182,7 @@ Steps:
  * rebuild Hagfish
  * extract the debug symbols:
   $ aarch64-linux-gnu-objcopy --only-keep-debug \
-      Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish/Application/Hagfish/Hagfish/DEBUG/Hagfish.dll \
+      edk2/Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish/Application/Hagfish/Hagfish/DEBUG/Hagfish.dll \
       Hagfish.sym
  * run GBD and attach to host, e.g. QEMU
  * start the execution until you see: Hagfish loaded at 78449000, size 310304B, by handle 7B0CCB98
