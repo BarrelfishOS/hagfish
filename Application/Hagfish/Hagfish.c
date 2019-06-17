@@ -737,7 +737,7 @@ create_core_data(struct hagfish_config *cfg) {
     ntstring(
         core_data->cpu_driver_cmdline,
         cfg->buf + cfg->cpu_driver->args_start,
-        MIN(cfg->cpu_driver->args_len, 127)
+        MIN(cfg->cpu_driver->args_len, sizeof(core_data->cpu_driver_cmdline) - 1)
     );
     
     core_data->multiboot_image.base = (EFI_PHYSICAL_ADDRESS)cfg->multiboot;
