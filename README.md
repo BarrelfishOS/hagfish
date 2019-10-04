@@ -136,28 +136,38 @@ $ git clone git://git.barrelfish.org/git/Hagfish
 ### Building
 
 Hagfish is built using the [UEFI embedded development kit (EDKII)](https://github.com/tianocore/edk2)
-(tested on `edk2-stable201905` tag). 
+(tested on `edk2-stable201908` tag).
+Clone it to somewhere outside this repository and compile the build tools:
+```
+git clone -b edk2-stable201908 https://github.com/tianocore/edk2.git ${PATH_TO_EDK2}
+make -C ${PATH_TO_EDK2}/BaseTools/
+```
 
-You'll need an AArch64-compatible cross compiler, on Ubuntu 18.04 you can install
+Hagfish also depends on the C standard library.
+Clone an UEFI port of it to somewhere outside this repository:
+```
+git clone https://github.com/tianocore/edk2-libc.git ${PATH_TO_LIBC}
+```
+
+To compile Hagfish you'll need an AArch64-compatible cross compiler, on Ubuntu 18.04 you can install
 the `gcc-aarch64-linux-gnu` package.
 
-Once the cross-compiler is installed, build Hagfish as follows:
-Set up a UEFI build environment (run these commands in the parent directory of Hagfish):
+Setup the build environment by sourcing `setup_env.sh`:
 ```
-$ git clone -b edk2-stable201905 https://github.com/tianocore/edk2.git
-$ git clone https://github.com/tianocore/edk2-libc.git
-$ make -C edk2/BaseTools/
-$ export WORKSPACE=$(pwd)/edk2
-$ export PACKAGES_PATH=$(pwd)/edk2-libc:$(pwd)
-$ export EDK_TOOLS_PATH=$(pwd)/edk2/BaseTools
-$ . edk2/edksetup.sh
-$ export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
+source ./setup_env.sh ${PATH_TO_EDK} ${PATH_TO_LIBC} ${PATH_TO_HAGFISH}
 ```
-Build Hagfish:
+The arguments default to the following:
 ```
-$ build -a AARCH64 -t GCC5 -p Hagfish/Hagfish.dsc -m Hagfish/Application/Hagfish/Hagfish.inf -b DEBUG
+PATH_TO_HAGFISH=$(pwd)
+PATH_TO_EDK=${PATH_TO_HAGFISH}/../edk2
+PATH_TO_LIBC=${PATH_TO_EDK}/../edk2-libc
 ```
-The image is at `edk2/Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish.efi`.
+
+Then build Hagfish:
+```
+build -a AARCH64 -t GCC5 -p Hagfish/Hagfish.dsc -m Hagfish/Application/Hagfish/Hagfish.inf -b DEBUG
+```
+The image will be at `${PATH_TO_EDK}/Build/Hagfish/DEBUG_GCC5/AARCH64/Hagfish.efi`.
 
 ### Booting
 
