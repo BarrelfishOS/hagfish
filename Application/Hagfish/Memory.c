@@ -52,7 +52,6 @@ static const char *bf_mmap_types[] = {
     "BF multiboot",
     "BF module",
     "BF page table",
-    "BF core data",
 };
 
 void

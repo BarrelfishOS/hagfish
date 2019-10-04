@@ -43,7 +43,6 @@
 #include <libelf.h>
 #include <multiboot2.h>
 #include <vm.h>
-#include <arm_core_data.h>
 
 /* Application headers */
 #include <Allocation.h>
@@ -135,6 +134,9 @@ create_multiboot_info(struct hagfish_config *cfg,
     /* Multiboot2 information data structure */
     size = 8;
 
+    /* CPU Driver entry point*/
+    size += ALIGN(sizeof(struct multiboot_tag_efi64));
+
     /* cpu driver command line */
     size+= ALIGN(sizeof(struct multiboot_tag_string)
          + cfg->cpu_driver->args_len+1);
@@ -185,6 +187,19 @@ create_multiboot_info(struct hagfish_config *cfg,
 
     /* Skip the information structure for now*/
     cursor += 8;
+
+    /* Add the ELF section headers. */
+
+    {
+        struct multiboot_tag_efi64 *efi=
+            (struct multiboot_tag_efi64 *)cursor;
+
+        efi->type = MULTIBOOT_TAG_TYPE_EFI64;
+        efi->size = ALIGN(sizeof(struct multiboot_tag_efi64));
+        efi->pointer = (uint64_t)cfg->cpu_driver_entry;
+
+        cursor+= ALIGN(sizeof(struct multiboot_tag_efi64));
+    }
 
     /* Add the boot command line */
     {
@@ -722,35 +737,6 @@ configure_loader(struct hagfish_loader *loader, EFI_HANDLE ImageHandle,
     return status;
 }
 
-struct armv8_core_data *
-create_core_data(struct hagfish_config *cfg) {
-    /* core data fits into a page */
-    ASSERT(sizeof(struct armv8_core_data) < PAGE_4k);
-
-    struct armv8_core_data *core_data = allocate_pages(1, EfiBarrelfishCoreData);
-    if (!core_data) {
-        DebugPrint(DEBUG_ERROR, "Failed to allocate pages for \n");
-        return NULL;
-    }
-    memset(core_data, 0, PAGE_4k);
-
-    core_data->boot_magic = ARMV8_BOOTMAGIC_BSP;
-    core_data->cpu_driver_stack = (EFI_VIRTUAL_ADDRESS)cfg->kernel_stack + cfg->stack_size + KERNEL_OFFSET;
-    core_data->cpu_driver_stack_limit = (EFI_VIRTUAL_ADDRESS)cfg->kernel_stack + KERNEL_OFFSET;
-    core_data->cpu_driver_entry = (EFI_VIRTUAL_ADDRESS)cfg->cpu_driver_entry;
-    core_data->page_table_root = (EFI_PHYSICAL_ADDRESS)get_root_table(cfg);
-    ntstring(
-        core_data->cpu_driver_cmdline,
-        cfg->buf + cfg->cpu_driver->args_start,
-        MIN(cfg->cpu_driver->args_len, 255)
-    );
-    
-    core_data->multiboot_info_addr = (EFI_VIRTUAL_ADDRESS)cfg->multiboot + KERNEL_OFFSET;
-    core_data->efi_mmap_addr = (EFI_VIRTUAL_ADDRESS)cfg->mmap_tag + KERNEL_OFFSET;
-
-    return core_data;
-}
-
 
 EFI_STATUS
 UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
@@ -896,13 +882,6 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     status= arch_probe();
     if(EFI_ERROR(status)) return EFI_SUCCESS;
 
-    /* Create core data that is passed to the BF boot driver */
-    struct armv8_core_data *core_data = create_core_data(cfg);
-    if (!core_data) {
-        DebugPrint(DEBUG_ERROR, "Failed to create core data.\n");
-        return EFI_SUCCESS;
-    }
-
     /* Save the kernel entry point and other pointers (we're about to free
      * cfg).  As these copies are sitting on our stack, they'll be freed when
      * the CPU driver recycles Hagfish's memory regions. */
@@ -928,7 +907,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
     AsciiPrint("New stack pointer is %p   [%p..%p]  0x%p kB\n",
                kernel_stack + stack_size - 16, kernel_stack,
                kernel_stack + stack_size, stack_size >> 10);
-    AsciiPrint("Core data pointer is %p\n", core_data);
+    AsciiPrint("Multiboot2 pointer is %p\n", multiboot);
 
     print_memory_map(1);
 
@@ -967,7 +946,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
         struct multiboot_tag *tag = (void *)cfg->mmap_tag + cfg->mmap_tag->size;
         tag->type = MULTIBOOT_TAG_TYPE_END;
         tag->size = ALIGN(sizeof(struct multiboot_tag));
-        ((struct multiboot_info *)multiboot)->total_size = (void *)tag + tag->size - (void *)multiboot;
+        *(multiboot_uint32_t *)multiboot = (void *)tag + tag->size - (void *)multiboot;
     }
 
     status = set_memory_map();
@@ -987,7 +966,7 @@ UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable) {
      */
     SwitchStack((SWITCH_STACK_ENTRY_POINT)kernel_entry,
                 (void *)(uintptr_t)(MULTIBOOT2_BOOTLOADER_MAGIC),
-                (void *)core_data,
+                (void *)multiboot,
                 (void *)(kernel_stack + stack_size - 16));
 
     return EFI_SUCCESS;
