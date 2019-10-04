@@ -24,6 +24,10 @@
 typedef UINT64 uint64_t;
 typedef UINT32 uint32_t;
 
+typedef UINT64 genvaddr_t;
+typedef UINT64 genpaddr_t;
+typedef UINT64 gensize_t;
+
 typedef UINT64 hwid_t;
 typedef UINT16 coreid_t;
 
