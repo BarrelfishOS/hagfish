@@ -126,11 +126,11 @@ statements hold:
 
 ### Downloading
 
-The current Hagfish development tree is available at `git://git.barrelfish.org/git/Hagfish`.
+The current Hagfish development tree is available at `https://github.com/BarrelfishOS/hagfish`.
 
 Clone it with:
 ```
-$ git clone git://git.barrelfish.org/git/Hagfish
+$ git clone https://github.com/BarrelfishOS/hagfish.git
 ```
 
 ### Building
